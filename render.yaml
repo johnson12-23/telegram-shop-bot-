@@ -11,7 +11,7 @@ services:
       - key: API_PORT
         value: 4000
 
-  - type: worker
+  - type: web
     name: telegram-shop-bot-worker
     env: node
     plan: free

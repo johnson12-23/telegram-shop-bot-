@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: telegram-shop-api
+    env: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install
+    startCommand: npm run start:api
+    autoDeploy: true
+    envVars:
+      - key: API_PORT
+        value: 4000
+
+  - type: worker
+    name: telegram-shop-bot-worker
+    env: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install
+    startCommand: npm run start:bot
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: API_BASE_URL
+        value: https://telegram-shop-api.onrender.com

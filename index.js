@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
+const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
@@ -29,11 +30,26 @@ let productsCache = {
 };
 const PRODUCTS_CACHE_TTL_MS = 30000;
 
+const healthApp = express();
+const healthPort = Number(process.env.PORT || 3000);
+
 if (!botToken) {
   throw new Error('BOT_TOKEN is missing. Add it to telegram-shop-bot/.env or your environment.');
 }
 
 const bot = new Telegraf(botToken);
+
+healthApp.get('/', (req, res) => {
+  res.status(200).send('Bot is running');
+});
+
+healthApp.get('/health', (req, res) => {
+  res.status(200).json({ ok: true, service: 'telegram-shop-bot-worker' });
+});
+
+healthApp.listen(healthPort, () => {
+  console.log(`Health server listening on port ${healthPort}`);
+});
 
 function isProcessRunning(pid) {
   try {

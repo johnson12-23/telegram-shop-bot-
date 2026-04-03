@@ -22,6 +22,7 @@ const fallbackProducts = [
   { id: 4, name: 'FOREIGN INDOORS KUSH', price: 75, description: 'Top-shelf indoor curated product' }
 ];
 const botLockPath = path.join(__dirname, '.bot.lock');
+const shouldUseLocalLock = !process.env.RENDER && process.env.BOT_LOCK !== 'false';
 let botLockFd = null;
 let productsCache = {
   products: fallbackProducts,
@@ -61,6 +62,10 @@ function isProcessRunning(pid) {
 }
 
 function releaseBotLock() {
+  if (!shouldUseLocalLock) {
+    return;
+  }
+
   try {
     if (botLockFd !== null) {
       fs.closeSync(botLockFd);
@@ -76,6 +81,10 @@ function releaseBotLock() {
 }
 
 function acquireBotLock() {
+  if (!shouldUseLocalLock) {
+    return;
+  }
+
   try {
     botLockFd = fs.openSync(botLockPath, 'wx');
     fs.writeFileSync(botLockFd, `${process.pid}\n${new Date().toISOString()}`);
@@ -647,6 +656,15 @@ async function startBot() {
     console.log(`Bot is running as @${me.username}`);
   } catch (error) {
     releaseBotLock();
+    const isConflict = error?.response?.error_code === 409;
+    if (isConflict) {
+      console.warn('Telegram conflict detected. Retrying bot launch in 5 seconds...');
+      setTimeout(() => {
+        startBot();
+      }, 5000);
+      return;
+    }
+
     console.error('Failed to launch bot:', error);
     process.exit(1);
   }

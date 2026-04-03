@@ -23,4 +23,4 @@ services:
       - key: BOT_TOKEN
         sync: false
       - key: API_BASE_URL
-        value: https://telegram-shop-api.onrender.com
+        sync: false

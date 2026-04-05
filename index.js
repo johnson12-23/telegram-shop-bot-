@@ -136,6 +136,11 @@ function getContextKey(ctx) {
   return String(ctx.from?.id ?? ctx.senderChat?.id ?? ctx.chat?.id ?? 'anonymous');
 }
 
+function getCartKey(ctx) {
+  // Prefer chat scope for stable cart continuity across callback and message updates.
+  return String(ctx.chat?.id ?? ctx.from?.id ?? ctx.senderChat?.id ?? 'anonymous');
+}
+
 function getContextLabel(ctx) {
   return (
     ctx.from?.username ||
@@ -447,16 +452,16 @@ function buildCartKeyboard() {
 }
 
 async function showCart(ctx) {
-  const userId = getContextKey(ctx);
-  const cartItems = getUserCart(userId);
+  const cartKey = getCartKey(ctx);
+  const cartItems = getUserCart(cartKey);
   const { products } = await loadProducts();
 
   await ctx.reply(formatCartMessage(cartItems, products), buildCartKeyboard());
 }
 
 async function addToCartFlow(ctx, productId, grams) {
-  const userId = getContextKey(ctx);
-  const cartItems = getUserCart(userId);
+  const cartKey = getCartKey(ctx);
+  const cartItems = getUserCart(cartKey);
   const { products } = await loadProducts();
   const product = products.find((entry) => Number(entry.id) === productId);
 
@@ -865,8 +870,8 @@ bot.action(/quantity_(\d+)_(\d+)/, async (ctx) => {
 
 bot.action('cart_remove_menu', async (ctx) => {
   await safeAnswerCbQuery(ctx, 'Choose item to remove');
-  const userId = getContextKey(ctx);
-  const cartItems = getUserCart(userId);
+  const cartKey = getCartKey(ctx);
+  const cartItems = getUserCart(cartKey);
 
   if (!cartItems.length) {
     await ctx.reply('Your cart is empty.', buildCartKeyboard());
@@ -886,9 +891,9 @@ bot.action('cart_remove_menu', async (ctx) => {
 
 bot.action(/cart_remove_(\d+)/, async (ctx) => {
   await safeAnswerCbQuery(ctx, 'Removing item...');
-  const userId = getContextKey(ctx);
+  const cartKey = getCartKey(ctx);
   const productId = Number(ctx.match[1]);
-  const cartItems = getUserCart(userId);
+  const cartItems = getUserCart(cartKey);
   const itemIndex = cartItems.findIndex((item) => Number(item.productId) === productId);
 
   if (itemIndex === -1) {
@@ -916,20 +921,20 @@ bot.action(/cart_remove_(\d+)/, async (ctx) => {
 
 bot.action(/cart_remove_all_(\d+)/, async (ctx) => {
   await safeAnswerCbQuery(ctx, 'Removing...');
-  const userId = getContextKey(ctx);
+  const cartKey = getCartKey(ctx);
   const productId = Number(ctx.match[1]);
-  const cartItems = getUserCart(userId);
+  const cartItems = getUserCart(cartKey);
   const updated = cartItems.filter((item) => Number(item.productId) !== productId);
-  userCarts.set(userId, updated);
+  userCarts.set(cartKey, updated);
 
   await showCart(ctx);
 });
 
 bot.action(/cart_reduce_(\d+)/, async (ctx) => {
   await safeAnswerCbQuery(ctx, 'Reducing quantity...');
-  const userId = getContextKey(ctx);
+  const cartKey = getCartKey(ctx);
   const productId = Number(ctx.match[1]);
-  const cartItems = getUserCart(userId);
+  const cartItems = getUserCart(cartKey);
   const item = cartItems.find((entry) => Number(entry.productId) === productId);
 
   if (!item) {
@@ -942,7 +947,7 @@ bot.action(/cart_reduce_(\d+)/, async (ctx) => {
     item.lineTotal = item.quantity * item.unitPrice;
   } else {
     const updated = cartItems.filter((entry) => Number(entry.productId) !== productId);
-    userCarts.set(userId, updated);
+    userCarts.set(cartKey, updated);
   }
 
   await showCart(ctx);
@@ -955,8 +960,8 @@ bot.action('cart_show', async (ctx) => {
 
 bot.action('cart_checkout', async (ctx) => {
   await safeAnswerCbQuery(ctx, 'Processing checkout...');
-  const userId = getContextKey(ctx);
-  const cartItems = getUserCart(userId);
+  const cartKey = getCartKey(ctx);
+  const cartItems = getUserCart(cartKey);
 
   if (!cartItems.length) {
     await ctx.reply('Your cart is empty. Add products first.', buildCartKeyboard());
@@ -995,8 +1000,8 @@ bot.action('cart_checkout', async (ctx) => {
 
 bot.action('cart_confirm_final', async (ctx) => {
   await safeAnswerCbQuery(ctx, 'Finalizing order...');
-  const userId = getContextKey(ctx);
-  const cartItems = getUserCart(userId);
+  const cartKey = getCartKey(ctx);
+  const cartItems = getUserCart(cartKey);
 
   if (!cartItems.length) {
     await ctx.reply('Your cart is empty. Add products first.', buildCartKeyboard());
@@ -1023,7 +1028,7 @@ bot.action('cart_confirm_final', async (ctx) => {
     }
 
     const order = await response.json();
-    userCarts.set(userId, []);
+    userCarts.set(cartKey, []);
 
     await ctx.reply(
       `✅ Checkout complete!\n\nOrder ID: ${order.id}\nTotal: ₵${order.total}\nStatus: ${order.status}\nCreated: ${order.createdAt}\n\nNext step: track your order or continue shopping.`,

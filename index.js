@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const botToken = process.env.BOT_TOKEN;
+const botTokenMissing = !botToken || !botToken.trim();
 const apiBaseUrl = (process.env.API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
 const botMode = (process.env.BOT_MODE || 'auto').toLowerCase();
 const webhookUrl = (process.env.WEBHOOK_URL || '').trim().replace(/\/+$/, '');
@@ -129,11 +130,7 @@ const healthApp = express();
 const healthPort = Number(process.env.PORT || 3000);
 let healthServerStarted = false;
 
-if (!botToken) {
-  throw new Error('BOT_TOKEN is missing. Add it to telegram-shop-bot/.env or your environment.');
-}
-
-const bot = new Telegraf(botToken);
+const bot = new Telegraf(botTokenMissing ? '000000:missing-token' : botToken);
 
 function getContextKey(ctx) {
   return String(ctx.from?.id ?? ctx.senderChat?.id ?? ctx.chat?.id ?? 'anonymous');
@@ -150,11 +147,19 @@ function getContextLabel(ctx) {
 }
 
 healthApp.get('/', (req, res) => {
-  res.status(200).send('Bot is running');
+  res.status(200).json({
+    ok: true,
+    service: 'telegram-shop-bot-worker',
+    botTokenConfigured: !botTokenMissing
+  });
 });
 
 healthApp.get('/health', (req, res) => {
-  res.status(200).json({ ok: true, service: 'telegram-shop-bot-worker' });
+  res.status(200).json({
+    ok: true,
+    service: 'telegram-shop-bot-worker',
+    botTokenConfigured: !botTokenMissing
+  });
 });
 
 function startHealthServer() {
@@ -1018,6 +1023,13 @@ async function startBot() {
   const runtimeMode = resolveRuntimeMode();
   const maxBackoffMs = 30000;
   let attempt = 0;
+
+  if (botTokenMissing) {
+    console.warn('BOT_TOKEN is missing. Starting health server only so Render stays live.');
+    console.warn('Add BOT_TOKEN in the Render service environment to enable the bot.');
+    await startHealthServer();
+    return;
+  }
 
   if (runtimeMode === 'webhook' && !webhookUrl) {
     throw new Error('WEBHOOK_URL must be set when BOT_MODE is webhook or auto resolves to webhook');

@@ -17,6 +17,8 @@ const webhookSecretToken = process.env.WEBHOOK_SECRET_TOKEN || undefined;
 const pendingSearchUsers = new Set();
 const pendingTrackUsers = new Set();
 const userCarts = new Map();
+const pendingCheckoutSessions = new Map();
+const localOrders = new Map();
 const productGroups = [
   {
     id: 'goodies',
@@ -152,6 +154,10 @@ function getContextLabel(ctx) {
     ctx.chat?.title ||
     'Telegram Customer'
   );
+}
+
+function getUserKey(ctx) {
+  return String(ctx.from?.id ?? ctx.chat?.id ?? ctx.senderChat?.id ?? 'anonymous');
 }
 
 healthApp.get('/', (req, res) => {
@@ -421,6 +427,15 @@ function getUserCart(userId) {
   return userCarts.get(cartKey);
 }
 
+function cloneCartItems(cartItems) {
+  return cartItems.map((item) => ({
+    productId: Number(item.productId),
+    quantity: Number(item.quantity),
+    unitPrice: Number(item.unitPrice),
+    lineTotal: Number(item.lineTotal)
+  }));
+}
+
 function buildGroupedCartSummary(cartItems, products) {
   const sections = new Map();
 
@@ -498,6 +513,7 @@ async function showCart(ctx) {
 async function addToCartFlow(ctx, productId, grams) {
   const cartKey = getCartKey(ctx);
   const cartItems = getUserCart(cartKey);
+  pendingCheckoutSessions.delete(cartKey);
   const { products } = await loadProducts();
   const product = products.find((entry) => Number(entry.id) === productId);
 
@@ -708,6 +724,7 @@ function resetSessionState(ctx) {
   pendingTrackUsers.delete(contextKey);
   pendingSearchUsers.delete(cartKey);
   pendingTrackUsers.delete(cartKey);
+  pendingCheckoutSessions.delete(cartKey);
   userCarts.set(cartKey, []);
 }
 
@@ -981,6 +998,7 @@ bot.action(/cart_remove_all_(\d+)/, async (ctx) => {
   const cartItems = getUserCart(cartKey);
   const updated = cartItems.filter((item) => Number(item.productId) !== productId);
   userCarts.set(cartKey, updated);
+  pendingCheckoutSessions.delete(cartKey);
 
   await showCart(ctx);
 });
@@ -1005,6 +1023,8 @@ bot.action(/cart_reduce_(\d+)/, async (ctx) => {
     userCarts.set(cartKey, updated);
   }
 
+  pendingCheckoutSessions.delete(cartKey);
+
   await showCart(ctx);
 });
 
@@ -1024,10 +1044,17 @@ bot.action('cart_checkout', async (ctx) => {
   }
 
   const { products } = await loadProducts();
-  const customerName = getContextLabel(ctx);
 
   try {
-    const { groupedText, total } = buildGroupedCartSummary(cartItems, products);
+    const checkoutItems = cloneCartItems(cartItems);
+    const { groupedText, total } = buildGroupedCartSummary(checkoutItems, products);
+    pendingCheckoutSessions.set(cartKey, {
+      items: checkoutItems,
+      total,
+      processing: false,
+      createdAt: Date.now()
+    });
+
     const confirmationMsg = [
       '📋 Order Confirmation',
       '',
@@ -1037,49 +1064,131 @@ bot.action('cart_checkout', async (ctx) => {
       '',
       `Final Total: ₵${total}`,
       '',
-      'Click "Confirm Order" to complete your purchase.'
+      'Tap Confirm Order to complete your purchase.'
     ].join('\n');
 
-    await ctx.reply(
-      confirmationMsg,
-      Markup.inlineKeyboard([
-        [Markup.button.callback('✅ Confirm Order', 'cart_confirm_final')],
-        [Markup.button.callback('❌ Cancel', 'cart_show')]
-      ])
-    );
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('✅ Confirm Order', 'confirm_order')],
+      [Markup.button.callback('❌ Cancel', 'cancel_order')]
+    ]);
+
+    try {
+      await ctx.editMessageText(confirmationMsg, keyboard);
+    } catch (editError) {
+      await ctx.reply(confirmationMsg, keyboard);
+    }
   } catch (error) {
     console.error('Checkout error:', error);
     await ctx.reply('Could not process checkout. Please try again.');
   }
 });
 
-bot.action('cart_confirm_final', async (ctx) => {
-  await safeAnswerCbQuery(ctx, 'Finalizing order...');
+async function processConfirmOrder(ctx) {
   const cartKey = getCartKey(ctx);
-  const cartItems = getUserCart(cartKey);
+  const userKey = getUserKey(ctx);
+  const pendingCheckout = pendingCheckoutSessions.get(cartKey);
+  const cartItems = pendingCheckout?.items || cloneCartItems(getUserCart(cartKey));
 
   if (!cartItems.length) {
     await ctx.reply('Your cart is empty. Add products first.', buildCartKeyboard());
     return;
   }
 
+  if (pendingCheckout?.processing) {
+    await safeAnswerCbQuery(ctx, 'Order already being processed...');
+    return;
+  }
+
+  if (pendingCheckout) {
+    pendingCheckout.processing = true;
+  }
+
   const customerName = getContextLabel(ctx);
 
   try {
-    const order = await submitCartOrder(customerName, cartItems);
-    userCarts.set(cartKey, []);
+    console.log('confirm_order triggered', {
+      cartKey,
+      userKey,
+      itemCount: cartItems.length
+    });
 
-    await ctx.reply(
-      `✅ Checkout complete!\n\nOrder ID: ${order.id}\nTotal: ₵${order.total}\nStatus: ${order.status}\nCreated: ${order.createdAt}\n\nNext step: track your order or continue shopping.`,
-      Markup.inlineKeyboard([
-        [Markup.button.callback('📦 Track this order', `track_${order.id}`)],
+    const localOrderId = Math.floor(1000 + Math.random() * 9000);
+    const localTotal = cartItems.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+    const localOrder = {
+      orderId: localOrderId,
+      items: cloneCartItems(cartItems),
+      total: localTotal,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    if (!localOrders.has(userKey)) {
+      localOrders.set(userKey, []);
+    }
+    localOrders.get(userKey).push(localOrder);
+
+    console.log('Local order snapshot:', localOrder);
+
+    const order = await submitCartOrder(customerName, cartItems);
+    console.log('Confirmed order response:', order);
+
+    userCarts.set(cartKey, []);
+    pendingCheckoutSessions.delete(cartKey);
+
+    const doneMsg = [
+      '✅ Order Confirmed!',
+      `Order ID: #${order.id || localOrderId}`,
+      `Status: ${order.status || 'pending'}`,
+      `Total: ₵${order.total || localTotal}`,
+      '',
+      'Next: track your order or continue shopping.'
+    ].join('\n');
+
+    try {
+      await ctx.editMessageText(doneMsg, Markup.inlineKeyboard([
+        [Markup.button.callback('📦 Track this order', `track_${order.id || localOrderId}`)],
         [Markup.button.callback('🛍️ View Products', 'open_products')]
-      ])
-    );
+      ]));
+    } catch (editError) {
+      await ctx.reply(doneMsg, Markup.inlineKeyboard([
+        [Markup.button.callback('📦 Track this order', `track_${order.id || localOrderId}`)],
+        [Markup.button.callback('🛍️ View Products', 'open_products')]
+      ]));
+    }
   } catch (error) {
     console.error('Final checkout error:', error);
+    if (pendingCheckout) {
+      pendingCheckout.processing = false;
+    }
     await ctx.reply('❌ Checkout failed. Please try again in a moment. If it persists, contact support.');
   }
+}
+
+bot.action('confirm_order', async (ctx) => {
+  await safeAnswerCbQuery(ctx, 'Confirming order...');
+  await processConfirmOrder(ctx);
+});
+
+bot.action('cancel_order', async (ctx) => {
+  await safeAnswerCbQuery(ctx, 'Order cancelled');
+  const cartKey = getCartKey(ctx);
+  pendingCheckoutSessions.delete(cartKey);
+  userCarts.set(cartKey, []);
+
+  try {
+    await ctx.editMessageText('❌ Order cancelled\n\nYour cart has been cleared.', Markup.inlineKeyboard([
+      [Markup.button.callback('🛍️ View Products', 'open_products')]
+    ]));
+  } catch (error) {
+    await ctx.reply('❌ Order cancelled\n\nYour cart has been cleared.', Markup.inlineKeyboard([
+      [Markup.button.callback('🛍️ View Products', 'open_products')]
+    ]));
+  }
+});
+
+bot.action('cart_confirm_final', async (ctx) => {
+  await safeAnswerCbQuery(ctx, 'Confirming order...');
+  await processConfirmOrder(ctx);
 });
 
 bot.action(/track_(\d+)/, async (ctx) => {

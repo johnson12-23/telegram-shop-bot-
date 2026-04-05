@@ -7,10 +7,83 @@ const port = Number(process.env.API_PORT || 4000);
 app.use(express.json());
 
 const products = [
-  { id: 1, name: 'GH GOLD', price: 50, description: 'Premium quality, smooth profile' },
-  { id: 2, name: 'PURPLE HAZE', price: 65, description: 'A classic curated selection' },
-  { id: 3, name: 'WHITE WIDOW', price: 60, description: 'Popular choice with balanced profile' },
-  { id: 4, name: 'FOREIGN INDOORS KUSH', price: 75, description: 'Top-shelf indoor curated product' }
+  {
+    id: 1,
+    name: 'GH GOLD',
+    group: 'goodies',
+    price: 50,
+    description: 'Premium quality, smooth profile, and a clean finish.'
+  },
+  {
+    id: 2,
+    name: 'PURPLE HAZE',
+    group: 'goodies',
+    price: 65,
+    description: 'A classic curated selection with a rich aroma.'
+  },
+  {
+    id: 3,
+    name: 'WHITE WIDOW',
+    group: 'goodies',
+    price: 60,
+    description: 'Popular choice with a balanced, refined profile.'
+  },
+  {
+    id: 4,
+    name: 'FOREIGN INDOORS KUSH',
+    group: 'goodies',
+    price: 75,
+    description: 'Top-shelf indoor curated product with premium character.'
+  },
+  {
+    id: 5,
+    name: 'JELLY TOFFEES',
+    group: 'edibles',
+    price: 30,
+    description: 'Sweet infused chewables with a soft bite.'
+  },
+  {
+    id: 6,
+    name: 'CAKE',
+    group: 'edibles',
+    price: 45,
+    description: 'Soft-bake infused slices with a rich finish.'
+  },
+  {
+    id: 7,
+    name: 'NKATECAKE',
+    group: 'edibles',
+    price: 40,
+    description: 'Peanut-rich local style cake with a premium touch.'
+  },
+  {
+    id: 8,
+    name: 'GROUND',
+    group: 'edibles',
+    price: 35,
+    description: 'Fine-ground edible blend for a smooth experience.'
+  },
+  {
+    id: 9,
+    name: 'INFUSED SOBOLO',
+    group: 'drinks',
+    price: 25,
+    description: 'Chilled hibiscus fusion drink with a bold twist.'
+  },
+  {
+    id: 10,
+    name: 'INFUSED LAMOGIN',
+    group: 'drinks',
+    price: 38,
+    description: 'Herbal local spirit infusion with a smooth profile.'
+  },
+  {
+    id: 11,
+    name: 'ALCOHOLIC HERB DRINK',
+    group: 'drinks',
+    price: 42,
+    description: 'Bold botanical adult blend with a polished finish.'
+  }
 ];
 
 const orders = [];

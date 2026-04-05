@@ -7,6 +7,7 @@ services:
     buildCommand: npm install
     startCommand: npm run start:api
     autoDeploy: true
+    healthCheckPath: /health
     envVars:
       - key: API_PORT
         value: 4000
@@ -19,8 +20,17 @@ services:
     buildCommand: npm install
     startCommand: npm run start:bot
     autoDeploy: true
+    healthCheckPath: /health
     envVars:
       - key: BOT_TOKEN
         sync: false
       - key: API_BASE_URL
+        sync: false
+      - key: BOT_MODE
+        value: auto
+      - key: WEBHOOK_PATH
+        value: /telegram/webhook
+      - key: WEBHOOK_URL
+        sync: false
+      - key: WEBHOOK_SECRET_TOKEN
         sync: false

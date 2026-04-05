@@ -6,20 +6,114 @@ const path = require('path');
 
 const botToken = process.env.BOT_TOKEN;
 const apiBaseUrl = (process.env.API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
+const botMode = (process.env.BOT_MODE || 'auto').toLowerCase();
+const webhookUrl = (process.env.WEBHOOK_URL || '').trim().replace(/\/+$/, '');
+const webhookPath = process.env.WEBHOOK_PATH || '/telegram/webhook';
+const webhookSecretToken = process.env.WEBHOOK_SECRET_TOKEN || undefined;
 const pendingSearchUsers = new Set();
 const pendingTrackUsers = new Set();
 const userCarts = new Map();
-const categories = [
-  { id: 1, name: 'GH GOLD' },
-  { id: 2, name: 'PURPLE HAZE' },
-  { id: 3, name: 'WHITE WIDOW' },
-  { id: 4, name: 'FOREIGN INDOORS KUSH' }
+const productGroups = [
+  {
+    id: 'goodies',
+    name: 'GOODIES',
+    icon: '🍬',
+    tagline: 'Premium classics and bestsellers',
+    blurb: 'Curated originals and top picks'
+  },
+  {
+    id: 'edibles',
+    name: 'EDIBLES',
+    icon: '🍰',
+    tagline: 'Sweets, bakes, and infused treats',
+    blurb: 'Soft, sweet, and carefully prepared'
+  },
+  {
+    id: 'drinks',
+    name: 'DRINKS',
+    icon: '🥤',
+    tagline: 'Infused drinks and liquid blends',
+    blurb: 'Refreshing blends with a premium finish'
+  }
 ];
 const fallbackProducts = [
-  { id: 1, name: 'GH GOLD', price: 50, description: 'Premium quality, smooth profile' },
-  { id: 2, name: 'PURPLE HAZE', price: 65, description: 'A classic curated selection' },
-  { id: 3, name: 'WHITE WIDOW', price: 60, description: 'Popular choice with balanced profile' },
-  { id: 4, name: 'FOREIGN INDOORS KUSH', price: 75, description: 'Top-shelf indoor curated product' }
+  {
+    id: 1,
+    name: 'GH GOLD',
+    group: 'goodies',
+    price: 50,
+    description: 'Premium quality, smooth profile, and a clean finish.'
+  },
+  {
+    id: 2,
+    name: 'PURPLE HAZE',
+    group: 'goodies',
+    price: 65,
+    description: 'A classic curated selection with a rich aroma.'
+  },
+  {
+    id: 3,
+    name: 'WHITE WIDOW',
+    group: 'goodies',
+    price: 60,
+    description: 'Popular choice with a balanced, refined profile.'
+  },
+  {
+    id: 4,
+    name: 'FOREIGN INDOORS KUSH',
+    group: 'goodies',
+    price: 75,
+    description: 'Top-shelf indoor curated product with premium character.'
+  },
+  {
+    id: 5,
+    name: 'JELLY TOFFEES',
+    group: 'edibles',
+    price: 30,
+    description: 'Sweet infused chewables with a soft bite.'
+  },
+  {
+    id: 6,
+    name: 'CAKE',
+    group: 'edibles',
+    price: 45,
+    description: 'Soft-bake infused slices with a rich finish.'
+  },
+  {
+    id: 7,
+    name: 'NKATECAKE',
+    group: 'edibles',
+    price: 40,
+    description: 'Peanut-rich local style cake with a premium touch.'
+  },
+  {
+    id: 8,
+    name: 'GROUND',
+    group: 'edibles',
+    price: 35,
+    description: 'Fine-ground edible blend for a smooth experience.'
+  },
+  {
+    id: 9,
+    name: 'INFUSED SOBOLO',
+    group: 'drinks',
+    price: 25,
+    description: 'Chilled hibiscus fusion drink with a bold twist.'
+  },
+  {
+    id: 10,
+    name: 'INFUSED LAMOGIN',
+    group: 'drinks',
+    price: 38,
+    description: 'Herbal local spirit infusion with a smooth profile.'
+  },
+  {
+    id: 11,
+    name: 'ALCOHOLIC HERB DRINK',
+    group: 'drinks',
+    price: 42,
+    description: 'Bold botanical adult blend with a polished finish.'
+  }
 ];
 const botLockPath = path.join(__dirname, '.bot.lock');
 const shouldUseLocalLock = !process.env.RENDER && process.env.BOT_LOCK !== 'false';
@@ -33,6 +127,7 @@ const PRODUCTS_CACHE_TTL_MS = 30000;
 
 const healthApp = express();
 const healthPort = Number(process.env.PORT || 3000);
+let healthServerStarted = false;
 
 if (!botToken) {
   throw new Error('BOT_TOKEN is missing. Add it to telegram-shop-bot/.env or your environment.');
@@ -48,9 +143,51 @@ healthApp.get('/health', (req, res) => {
   res.status(200).json({ ok: true, service: 'telegram-shop-bot-worker' });
 });
 
-healthApp.listen(healthPort, () => {
-  console.log(`Health server listening on port ${healthPort}`);
-});
+function startHealthServer() {
+  if (healthServerStarted) {
+    return;
+  }
+
+  healthServerStarted = true;
+  healthApp.listen(healthPort, () => {
+    console.log(`Health server listening on port ${healthPort}`);
+  });
+}
+
+if (webhookSecretToken) {
+  healthApp.use((req, res, next) => {
+    if (req.path !== webhookPath) {
+      next();
+      return;
+    }
+
+    const incomingSecret = req.get('x-telegram-bot-api-secret-token');
+    if (incomingSecret !== webhookSecretToken) {
+      res.status(403).send('Forbidden');
+      return;
+    }
+
+    next();
+  });
+}
+
+healthApp.use(webhookPath, bot.webhookCallback(webhookPath));
+
+function resolveRuntimeMode() {
+  if (botMode === 'webhook') {
+    return 'webhook';
+  }
+
+  if (botMode === 'polling') {
+    return 'polling';
+  }
+
+  return webhookUrl ? 'webhook' : 'polling';
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function isProcessRunning(pid) {
   try {
@@ -291,8 +428,10 @@ async function getOrderById(orderId) {
 
 function buildMainMenu() {
   return Markup.keyboard([
-    ['🛍️ View Products', '🔍 Search'],
-    ['📦 Track Order', '🛒 My Cart'],
+    ['🛍️ View Products'],
+    ['🔍 Search'],
+    ['📦 Track Order'],
+    ['🛒 My Cart'],
     ['❓ Help']
   ]).resize();
 }
@@ -317,28 +456,107 @@ async function trackOrderById(ctx, orderId) {
   );
 }
 
-function formatCategoryList() {
-  return [
-    'Choose a category:',
-    '1. GH GOLD',
-    '2. PURPLE HAZE',
-    '3. WHITE WIDOW',
-    '4. FOREIGN INDOORS KUSH'
-  ].join('\n');
+function formatCategoryList(products = fallbackProducts) {
+  return productGroups
+    .map((group, index) => {
+      const count = getProductsByGroup(products, group.id).length;
+      return `${index + 1}. ${group.icon} ${group.name} (${count}) — ${group.tagline}`;
+    })
+    .join('\n');
 }
 
 function buildCategoryKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('1. GH GOLD', 'category_1')],
-    [Markup.button.callback('2. PURPLE HAZE', 'category_2')],
-    [Markup.button.callback('3. WHITE WIDOW', 'category_3')],
-    [Markup.button.callback('4. FOREIGN INDOORS KUSH', 'category_4')]
+    [Markup.button.callback('🍬 GOODIES', 'group_goodies')],
+    [Markup.button.callback('🍰 EDIBLES', 'group_edibles')],
+    [Markup.button.callback('🥤 DRINKS', 'group_drinks')]
   ]);
+}
+
+function getProductsByGroup(products, groupId) {
+  return products.filter((product) => (product.group || 'goodies') === groupId);
+}
+
+function formatGroupProducts(groupName, groupProducts) {
+  if (!groupProducts.length) {
+    return `${groupName}\n\nNo products available right now.`;
+  }
+
+  const lines = groupProducts.map((product, index) => `${index + 1}. ${product.name} - $${product.price}/g`);
+  return [groupName, '', `${groupProducts.length} item${groupProducts.length === 1 ? '' : 's'} available`, '', lines.join('\n')].join('\n');
+}
+
+function formatProductDetail(product) {
+  const group = productGroups.find((entry) => entry.id === (product.group || 'goodies'));
+  const collectionLabel = group ? `${group.icon} ${group.name}` : 'COLLECTION';
+
+  return [
+    `Selected: ${product.name}`,
+    `Collection: ${collectionLabel}`,
+    `Price: $${product.price}/g`,
+    '',
+    'About this item:',
+    product.description,
+    '',
+    'Choose grams to continue:'
+  ].join('\n');
+}
+
+function buildQuantityKeyboard(productId) {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('1g', `grams_${productId}_1`)],
+    [Markup.button.callback('2g', `grams_${productId}_2`)],
+    [Markup.button.callback('3g', `grams_${productId}_3`)],
+    [Markup.button.callback('⬅️ Back to collections', 'open_products')]
+  ]);
+}
+
+function buildGroupProductsKeyboard(groupId, groupProducts) {
+  const productButtons = [];
+
+  for (let index = 0; index < groupProducts.length; index += 2) {
+    const row = groupProducts.slice(index, index + 2).map((product) =>
+      Markup.button.callback(`${product.name} - $${product.price}/g`, `category_${product.id}`)
+    );
+    productButtons.push(row);
+  }
+
+  productButtons.push([Markup.button.callback('⬅️ Back to collections', 'open_products')]);
+  return Markup.inlineKeyboard(productButtons);
+}
+
+async function sendGroupProducts(ctx, groupId) {
+  const group = productGroups.find((entry) => entry.id === groupId);
+  if (!group) {
+    await ctx.reply('That collection is unavailable right now.', buildCategoryKeyboard());
+    return;
+  }
+
+  const { products } = await loadProducts();
+  const groupProducts = getProductsByGroup(products, groupId);
+  await ctx.reply(
+    [
+      `${group.icon} ${group.name}`,
+      group.blurb,
+      '',
+      `Browse the ${group.name.toLowerCase()} lineup below.`,
+      '',
+      formatGroupProducts(`${group.name} selection`, groupProducts)
+    ].join('\n'),
+    buildGroupProductsKeyboard(groupId, groupProducts)
+  );
 }
 
 async function sendCategorySelection(ctx, useEditMessage = false) {
   try {
-    const message = formatCategoryList();
+    const { products } = await loadProducts();
+    const message = [
+      'Premium collections',
+      '',
+      formatCategoryList(products),
+      '',
+      'Tap a collection to open its products.'
+    ].join('\n');
     const keyboard = buildCategoryKeyboard();
 
     if (useEditMessage) {
@@ -358,7 +576,7 @@ bot.start(async (ctx) => {
   pendingTrackUsers.delete(ctx.from?.id);
 
   await ctx.replyWithHTML(
-    'Welcome to our private collection.\n\nYou\'ve been granted access to a discreet, premium storefront designed for clients who value quality, privacy, and a seamless experience.\n\n🛍️ <b>Inside, you\'ll find:</b>\n• Carefully curated, high-quality selections\n• Smooth and secure ordering\n• Real-time order updates\n• A refined, stress-free shopping experience\n\n🔒 <b>Discretion is our standard</b>\nEvery interaction is handled with professionalism and strict confidentiality.\n\nTake your time, explore the collection, and choose what suits you best.\n\n👉 Tap "View Products" to begin.\n\nFor assistance, simply send a message - dedicated support is always available.',
+    'Welcome to our private collection.\n\nYou\'ve been granted access to a discreet, premium storefront designed for clients who value quality, privacy, and a seamless experience.\n\n🛍️ <b>Inside, you\'ll find:</b>\n• <b>GOODIES</b> for the current classics\n• <b>EDIBLES</b> for sweets and baked treats\n• <b>DRINKS</b> for infused beverages\n• Clear collection cards with item counts\n• Polished item pages with quick gram selection\n• Smooth and secure ordering\n• Real-time order updates\n\n🔒 <b>Discretion is our standard</b>\nEvery interaction is handled with professionalism and strict confidentiality.\n\nTake your time, explore the collection, and choose what suits you best.\n\n👉 Tap "View Products" to begin.\n\nFor assistance, simply send a message - dedicated support is always available.',
     buildMainMenu()
   );
 });
@@ -386,7 +604,7 @@ bot.hears('🛍️ View Products', async (ctx) => {
 bot.hears('🔍 Search', async (ctx) => {
   pendingSearchUsers.add(ctx.from?.id);
   pendingTrackUsers.delete(ctx.from?.id);
-  await ctx.reply('Send a product keyword (example: sneaker, bag, sunglass).', buildMainMenu());
+  await ctx.reply('Send a product keyword. Try: gold, jelly, cake, sobolo, or lamogin.', buildMainMenu());
 });
 
 bot.hears('📦 Track Order', async (ctx) => {
@@ -451,8 +669,20 @@ bot.on('text', async (ctx, next) => {
 });
 
 bot.action('refresh_products', async (ctx) => {
-  await safeAnswerCbQuery(ctx, 'Categories refreshed');
+  await safeAnswerCbQuery(ctx, 'Collections refreshed');
   await sendCategorySelection(ctx, true);
+});
+
+bot.action(/group_(goodies|edibles|drinks)/, async (ctx) => {
+  const groupId = ctx.match[1];
+
+  try {
+    await safeAnswerCbQuery(ctx, 'Opening collection');
+    await sendGroupProducts(ctx, groupId);
+  } catch (error) {
+    await safeAnswerCbQuery(ctx, 'Collection failed');
+    await ctx.reply('Could not open this collection right now. Please try again.');
+  }
 });
 
 bot.action(/category_(\d+)/, async (ctx) => {
@@ -464,20 +694,13 @@ bot.action(/category_(\d+)/, async (ctx) => {
     const product = products.find((entry) => Number(entry.id) === productId);
 
     if (!product) {
-      await ctx.reply('This category is currently unavailable. Try another category.', buildCategoryKeyboard());
+      await ctx.reply('This product is currently unavailable. Choose another product.', buildCategoryKeyboard());
       return;
     }
 
     await ctx.reply(
-      `Selected: ${product.name}\nPrice: $${product.price}/g\n${product.description}\n\nChoose grams:`,
-      Markup.inlineKeyboard([
-        [
-          Markup.button.callback('1g', `grams_${productId}_1`),
-          Markup.button.callback('2g', `grams_${productId}_2`),
-          Markup.button.callback('3g', `grams_${productId}_3`)
-        ],
-        [Markup.button.callback('Back to categories', 'open_products')]
-      ])
+      formatProductDetail(product),
+      buildQuantityKeyboard(productId)
     );
   } catch (error) {
     await safeAnswerCbQuery(ctx, 'Category failed');
@@ -499,15 +722,8 @@ bot.action(/buy_(\d+)/, async (ctx) => {
     }
 
     await ctx.reply(
-      `Selected: ${product.name} ($${product.price}/g)\n\nChoose grams:`,
-      Markup.inlineKeyboard([
-        [
-          Markup.button.callback('1g', `grams_${productId}_1`),
-          Markup.button.callback('2g', `grams_${productId}_2`),
-          Markup.button.callback('3g', `grams_${productId}_3`)
-        ],
-        [Markup.button.callback('Back to categories', 'open_products')]
-      ])
+      formatProductDetail(product),
+      buildQuantityKeyboard(productId)
     );
   } catch (error) {
     await safeAnswerCbQuery(ctx, 'Order failed');
@@ -635,7 +851,7 @@ bot.action(/track_(\d+)/, async (ctx) => {
 });
 
 bot.action('open_products', async (ctx) => {
-  await safeAnswerCbQuery(ctx, 'Opening categories');
+  await safeAnswerCbQuery(ctx, 'Opening collections');
   await sendCategorySelection(ctx);
 });
 
@@ -647,30 +863,72 @@ bot.catch((error, ctx) => {
 });
 
 async function startBot() {
-  try {
-    acquireBotLock();
-    console.log('Starting bot polling...');
-    await bot.launch();
-    console.log('Polling connected.');
-    const me = await bot.telegram.getMe();
-    console.log(`Bot is running as @${me.username}`);
-  } catch (error) {
-    releaseBotLock();
-    const isConflict = error?.response?.error_code === 409;
-    if (isConflict) {
-      console.warn('Telegram conflict detected. Retrying bot launch in 5 seconds...');
-      setTimeout(() => {
-        startBot();
-      }, 5000);
-      return;
-    }
+  const runtimeMode = resolveRuntimeMode();
+  const maxBackoffMs = 30000;
+  let attempt = 0;
 
-    console.error('Failed to launch bot:', error);
-    process.exit(1);
+  if (runtimeMode === 'webhook' && !webhookUrl) {
+    throw new Error('WEBHOOK_URL must be set when BOT_MODE is webhook or auto resolves to webhook');
+  }
+
+  if (runtimeMode === 'polling') {
+    startHealthServer();
+  }
+
+  while (true) {
+    try {
+      acquireBotLock();
+
+      if (runtimeMode === 'webhook') {
+        console.log(`Starting bot in webhook mode at ${webhookPath} on port ${healthPort}...`);
+        await bot.launch({
+          webhook: {
+            domain: webhookUrl,
+            hookPath: webhookPath,
+            port: healthPort,
+            host: '0.0.0.0',
+            cb: healthApp,
+            secretToken: webhookSecretToken
+          }
+        });
+        console.log('Webhook connected.');
+      } else {
+        console.log('Starting bot in polling mode...');
+        await bot.telegram.deleteWebhook({ drop_pending_updates: false });
+        await bot.launch({ dropPendingUpdates: false });
+        console.log('Polling connected.');
+      }
+
+      const me = await bot.telegram.getMe();
+      console.log(`Bot is running as @${me.username} (${runtimeMode})`);
+      return;
+    } catch (error) {
+      releaseBotLock();
+      attempt += 1;
+      const isConflict = error?.response?.error_code === 409;
+      const backoffMs = Math.min(2000 * attempt, maxBackoffMs);
+
+      if (isConflict) {
+        console.warn(`Telegram conflict detected. Retrying in ${backoffMs}ms...`);
+      } else {
+        console.error(`Failed to launch bot (attempt ${attempt}):`, error);
+        console.log(`Retrying launch in ${backoffMs}ms...`);
+      }
+
+      await sleep(backoffMs);
+    }
   }
 }
 
 startBot();
+
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled promise rejection:', error);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error);
+});
 
 process.once('SIGINT', () => {
   releaseBotLock();

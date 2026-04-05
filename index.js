@@ -983,11 +983,11 @@ bot.on('text', async (ctx, next) => {
 
     await ctx.reply(
       [
-        '⏳ Submitting your order...',
+        '⏳ Sending order',
+        `Total: ₵${selectedTotal}`,
         '',
         groupedText,
         '',
-        `Total: ₵${selectedTotal}`,
         `Delivery: ${deliveryDetails}`
       ].join('\n')
     );
@@ -1041,7 +1041,7 @@ bot.on('text', async (ctx, next) => {
         `Total: ₵${finalTotal}`,
         `Delivery: ${deliveryDetails}`,
         '',
-        'Tap Pay Now to continue.'
+        'Tap Pay Now.'
       ].join('\n'),
       Markup.inlineKeyboard([
         [Markup.button.callback('💳 Pay Now', `payment_prompt_${finalOrderId}`)],
@@ -1342,14 +1342,13 @@ bot.action('cart_checkout', async (ctx) => {
 
     const confirmationMsg = [
       '📋 Order Confirmation',
-      '',
-      'Reviewing your complete cart (all groups):',
+      'Review your selected items:',
       '',
       groupedText,
       '',
-      `Final Total: ₵${total}`,
+      `Total: ₵${total}`,
       '',
-      'Tap Confirm Order to complete your purchase.'
+      'Tap Confirm Order.'
     ].join('\n');
 
     const keyboard = Markup.inlineKeyboard([
@@ -1417,7 +1416,7 @@ async function processConfirmOrder(ctx) {
     try {
       await ctx.editMessageText(
         [
-          '⏳ Preparing checkout details...',
+          '⏳ Preparing checkout',
           '',
           groupedText,
           '',
@@ -1438,14 +1437,14 @@ async function processConfirmOrder(ctx) {
 
     const doneMsg = [
       '✅ Cart validated',
-      `Items: ${cartItems.length}`,
+      `Items: ${cartItems.length} line${cartItems.length === 1 ? '' : 's'}`,
       `Total: ₵${total}`,
       '',
       'Selected items:',
       groupedText,
       '',
-      'Send your delivery details in one message:',
-      'Name, area, phone number.'
+      'Send delivery details:',
+      'Name, area, phone.'
     ].join('\n');
 
     try {

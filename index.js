@@ -616,7 +616,7 @@ async function sendCategorySelection(ctx, useEditMessage = false) {
   }
 }
 
-bot.start(async (ctx) => {
+async function sendWelcomeMessage(ctx) {
   const contextKey = getContextKey(ctx);
   pendingSearchUsers.delete(contextKey);
   pendingTrackUsers.delete(contextKey);
@@ -629,6 +629,14 @@ bot.start(async (ctx) => {
     `Welcome to our private collection.\n\nQuick access for mobile: browse collections, search products, track orders, and manage your cart.\n\n🛍️ <b>What you can do:</b>\n• Browse GOODIES, EDIBLES, and DRINKS\n• View item details and add to cart\n• Check order status\n• Complete checkout in one cart\n\nTap "View Products" to begin.${anonymousSessionNote}`,
     buildMainMenu()
   );
+}
+
+bot.start(async (ctx) => {
+  await sendWelcomeMessage(ctx);
+});
+
+bot.hears(/^\?start$/i, async (ctx) => {
+  await sendWelcomeMessage(ctx);
 });
 
 bot.command('products', async (ctx) => {

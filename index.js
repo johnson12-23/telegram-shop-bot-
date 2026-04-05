@@ -21,6 +21,7 @@ const pendingCheckoutSessions = new Map();
 const pendingDeliverySessions = new Map();
 const localOrders = new Map();
 const actionLocks = new Map();
+const promptCooldowns = new Map();
 const productGroups = [
   {
     id: 'goodies',
@@ -344,6 +345,22 @@ function releaseActionLock(lockKey, cooldownMs = 900) {
   setTimeout(() => {
     actionLocks.delete(lockKey);
   }, cooldownMs);
+}
+
+async function replyWithCooldown(ctx, key, text, extra = undefined, cooldownMs = 2000) {
+  const now = Date.now();
+  const lastShown = promptCooldowns.get(key) || 0;
+  if (now - lastShown < cooldownMs) {
+    return;
+  }
+
+  promptCooldowns.set(key, now);
+  if (extra) {
+    await ctx.reply(text, extra);
+    return;
+  }
+
+  await ctx.reply(text);
 }
 
 function formatProducts(products) {
@@ -1205,7 +1222,11 @@ bot.action('cart_checkout', async (ctx) => {
     const cartItems = getUserCart(cartKey);
 
     if (pendingDeliverySessions.has(cartKey)) {
-      await ctx.reply('Delivery details are pending. Please send your name, area, and phone number.');
+      await replyWithCooldown(
+        ctx,
+        `delivery_pending_checkout:${cartKey}`,
+        'Delivery details are pending. Please send your name, area, and phone number.'
+      );
       return;
     }
 
@@ -1267,12 +1288,21 @@ async function processConfirmOrder(ctx) {
   const cartItems = pendingCheckout?.items || cloneCartItems(getUserCart(cartKey));
 
   if (!cartItems.length) {
-    await ctx.reply('Your cart is empty. Add products first.', buildCartKeyboard());
+    await replyWithCooldown(
+      ctx,
+      `empty_confirm:${cartKey}`,
+      'Your cart is empty. Add products first.',
+      buildCartKeyboard()
+    );
     return;
   }
 
   if (pendingDeliverySessions.has(cartKey)) {
-    await ctx.reply('Delivery details are pending. Please send your name, area, and phone number.');
+    await replyWithCooldown(
+      ctx,
+      `delivery_pending_confirm:${cartKey}`,
+      'Delivery details are pending. Please send your name, area, and phone number.'
+    );
     return;
   }
 

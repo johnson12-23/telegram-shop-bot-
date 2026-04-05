@@ -135,6 +135,20 @@ if (!botToken) {
 
 const bot = new Telegraf(botToken);
 
+function getContextKey(ctx) {
+  return String(ctx.from?.id ?? ctx.senderChat?.id ?? ctx.chat?.id ?? 'anonymous');
+}
+
+function getContextLabel(ctx) {
+  return (
+    ctx.from?.username ||
+    [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(' ') ||
+    ctx.senderChat?.title ||
+    ctx.chat?.title ||
+    'Telegram Customer'
+  );
+}
+
 healthApp.get('/', (req, res) => {
   res.status(200).send('Bot is running');
 });
@@ -345,11 +359,13 @@ async function createOrder(customerName, productId, quantity = 1) {
 }
 
 function getUserCart(userId) {
-  if (!userCarts.has(userId)) {
-    userCarts.set(userId, []);
+  const cartKey = String(userId);
+
+  if (!userCarts.has(cartKey)) {
+    userCarts.set(cartKey, []);
   }
 
-  return userCarts.get(userId);
+  return userCarts.get(cartKey);
 }
 
 function formatCartMessage(cartItems, products) {
@@ -376,7 +392,7 @@ function buildCartKeyboard() {
 }
 
 async function showCart(ctx) {
-  const userId = ctx.from?.id;
+  const userId = getContextKey(ctx);
   const cartItems = getUserCart(userId);
   const { products } = await loadProducts();
 
@@ -384,7 +400,7 @@ async function showCart(ctx) {
 }
 
 async function addToCartFlow(ctx, productId, grams) {
-  const userId = ctx.from?.id;
+  const userId = getContextKey(ctx);
   const cartItems = getUserCart(userId);
   const { products } = await loadProducts();
   const product = products.find((entry) => Number(entry.id) === productId);
@@ -572,11 +588,16 @@ async function sendCategorySelection(ctx, useEditMessage = false) {
 }
 
 bot.start(async (ctx) => {
-  pendingSearchUsers.delete(ctx.from?.id);
-  pendingTrackUsers.delete(ctx.from?.id);
+  const contextKey = getContextKey(ctx);
+  pendingSearchUsers.delete(contextKey);
+  pendingTrackUsers.delete(contextKey);
+
+  const anonymousSessionNote = ctx.from
+    ? ''
+    : '\n\n<b>Anonymous-safe session active.</b> Replies and cart state are scoped to this chat.';
 
   await ctx.replyWithHTML(
-    'Welcome to our private collection.\n\nYou\'ve been granted access to a discreet, premium storefront designed for clients who value quality, privacy, and a seamless experience.\n\n🛍️ <b>Inside, you\'ll find:</b>\n• <b>GOODIES</b> for the current classics\n• <b>EDIBLES</b> for sweets and baked treats\n• <b>DRINKS</b> for infused beverages\n• Clear collection cards with item counts\n• Polished item pages with quick gram selection\n• Smooth and secure ordering\n• Real-time order updates\n\n🔒 <b>Discretion is our standard</b>\nEvery interaction is handled with professionalism and strict confidentiality.\n\nTake your time, explore the collection, and choose what suits you best.\n\n👉 Tap "View Products" to begin.\n\nFor assistance, simply send a message - dedicated support is always available.',
+    `Welcome to our private collection.\n\nYou\'ve been granted access to a discreet, premium storefront designed for clients who value quality, privacy, and a seamless experience.\n\n🛍️ <b>Inside, you\'ll find:</b>\n• <b>GOODIES</b> for the current classics\n• <b>EDIBLES</b> for sweets and baked treats\n• <b>DRINKS</b> for infused beverages\n• Clear collection cards with item counts\n• Polished item pages with quick gram selection\n• Smooth and secure ordering\n• Real-time order updates\n\n🔒 <b>Discretion is our standard</b>\nEvery interaction is handled with professionalism and strict confidentiality.\n\nTake your time, explore the collection, and choose what suits you best.\n\n👉 Tap "View Products" to begin.\n\nFor assistance, simply send a message - dedicated support is always available.${anonymousSessionNote}`,
     buildMainMenu()
   );
 });
@@ -596,37 +617,42 @@ bot.command('status', async (ctx) => {
 });
 
 bot.hears('🛍️ View Products', async (ctx) => {
-  pendingSearchUsers.delete(ctx.from?.id);
-  pendingTrackUsers.delete(ctx.from?.id);
+  const contextKey = getContextKey(ctx);
+  pendingSearchUsers.delete(contextKey);
+  pendingTrackUsers.delete(contextKey);
   await sendCategorySelection(ctx);
 });
 
 bot.hears('🔍 Search', async (ctx) => {
-  pendingSearchUsers.add(ctx.from?.id);
-  pendingTrackUsers.delete(ctx.from?.id);
+  const contextKey = getContextKey(ctx);
+  pendingSearchUsers.add(contextKey);
+  pendingTrackUsers.delete(contextKey);
   await ctx.reply('Send a product keyword. Try: gold, jelly, cake, sobolo, or lamogin.', buildMainMenu());
 });
 
 bot.hears('📦 Track Order', async (ctx) => {
-  pendingTrackUsers.add(ctx.from?.id);
-  pendingSearchUsers.delete(ctx.from?.id);
+  const contextKey = getContextKey(ctx);
+  pendingTrackUsers.add(contextKey);
+  pendingSearchUsers.delete(contextKey);
   await ctx.reply('Send your order ID (example: 12).', buildMainMenu());
 });
 
 bot.hears('🛒 My Cart', async (ctx) => {
-  pendingSearchUsers.delete(ctx.from?.id);
-  pendingTrackUsers.delete(ctx.from?.id);
+  const contextKey = getContextKey(ctx);
+  pendingSearchUsers.delete(contextKey);
+  pendingTrackUsers.delete(contextKey);
   await showCart(ctx);
 });
 
 bot.hears('❓ Help', async (ctx) => {
-  pendingSearchUsers.delete(ctx.from?.id);
-  pendingTrackUsers.delete(ctx.from?.id);
+  const contextKey = getContextKey(ctx);
+  pendingSearchUsers.delete(contextKey);
+  pendingTrackUsers.delete(contextKey);
   await showHelp(ctx);
 });
 
 bot.on('text', async (ctx, next) => {
-  const userId = ctx.from?.id;
+  const userId = getContextKey(ctx);
   const text = (ctx.message?.text || '').trim();
 
   if (!text || text.startsWith('/')) {
@@ -759,7 +785,7 @@ bot.action(/quantity_(\d+)_(\d+)/, async (ctx) => {
 
 bot.action('cart_remove_menu', async (ctx) => {
   await safeAnswerCbQuery(ctx, 'Choose item to remove');
-  const userId = ctx.from?.id;
+  const userId = getContextKey(ctx);
   const cartItems = getUserCart(userId);
 
   if (!cartItems.length) {
@@ -780,7 +806,7 @@ bot.action('cart_remove_menu', async (ctx) => {
 
 bot.action(/cart_remove_(\d+)/, async (ctx) => {
   await safeAnswerCbQuery(ctx, 'Removing item...');
-  const userId = ctx.from?.id;
+  const userId = getContextKey(ctx);
   const productId = Number(ctx.match[1]);
   const cartItems = getUserCart(userId);
   const updated = cartItems.filter((item) => Number(item.productId) !== productId);
@@ -796,7 +822,7 @@ bot.action('cart_show', async (ctx) => {
 
 bot.action('cart_checkout', async (ctx) => {
   await safeAnswerCbQuery(ctx, 'Processing checkout...');
-  const userId = ctx.from?.id;
+  const userId = getContextKey(ctx);
   const cartItems = getUserCart(userId);
 
   if (!cartItems.length) {
@@ -804,10 +830,7 @@ bot.action('cart_checkout', async (ctx) => {
     return;
   }
 
-  const customerName =
-    ctx.from?.username ||
-    [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(' ') ||
-    'Telegram Customer';
+  const customerName = getContextLabel(ctx);
 
   try {
     const response = await fetch(`${apiBaseUrl}/api/orders`, {

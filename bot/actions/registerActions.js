@@ -330,18 +330,6 @@ function registerActions(bot, deps) {
     );
   }));
 
-  bot.on('callback_query', withHandler('action.unmatched_callback', async (ctx, next) => {
-    if (!ctx.match) {
-      await safeAnswerCbQuery(ctx, 'Action not available');
-      await editOrReply(ctx, 'That action is unavailable. Use the main menu.', mainMenuKeyboard());
-      return;
-    }
-
-    if (typeof next === 'function') {
-      await next();
-    }
-  }));
-
   bot.on('text', withHandler('text.checkout_and_track', async (ctx, next) => {
     const userId = getUserId(ctx);
     const text = String(ctx.message?.text || '').trim();

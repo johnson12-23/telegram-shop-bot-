@@ -744,6 +744,15 @@ function formatGroupProducts(groupName, groupProducts) {
   return [groupName, '', `${groupProducts.length} item${groupProducts.length === 1 ? '' : 's'} available`, '', lines.join('\n')].join('\n');
 }
 
+function truncateForButton(text, maxLength = 22) {
+  const value = String(text || '').trim();
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, Math.max(1, maxLength - 1))}…`;
+}
+
 function formatProductDetail(product) {
   const group = productGroups.find((entry) => entry.id === (product.group || 'goodies'));
   const collectionLabel = group ? `${group.icon} ${group.name}` : 'COLLECTION';
@@ -779,8 +788,9 @@ function buildGroupProductsKeyboard(groupId, groupProducts) {
 
   for (const product of groupProducts) {
     const unit = getProductUnit(product);
+    const shortName = truncateForButton(product.name, 18);
     productButtons.push([
-      Markup.button.callback(`${product.name} • ₵${product.price}/${unit}`, `category_${product.id}`)
+      Markup.button.callback(`${shortName} • ₵${product.price}/${unit}`, `category_${product.id}`)
     ]);
   }
 
@@ -1179,7 +1189,8 @@ bot.action('cart_remove_menu', async (ctx) => {
   const { products } = await loadProducts();
   const buttons = cartItems.map((item) => {
     const product = products.find((entry) => Number(entry.id) === Number(item.productId));
-    const label = `Remove ${product?.name || `#${item.productId}`}`;
+    const productName = truncateForButton(product?.name || `#${item.productId}`, 16);
+    const label = `Remove ${productName}`;
     return [Markup.button.callback(label, `cart_remove_${item.productId}`)];
   });
 
@@ -1211,7 +1222,7 @@ bot.action(/cart_remove_(\d+)/, async (ctx) => {
   const productName = product?.name || `Product #${productId}`;
 
   await ctx.reply(
-    `Adjusting: ${productName}\nCurrent quantity: ${item.quantity}${unit}\n\nWhat would you like to do?`,
+    `Adjusting: ${productName}\nQty: ${item.quantity}${unit}\n\nChoose an action:`,
     Markup.inlineKeyboard([
       [Markup.button.callback(`Remove all (${item.quantity}${unit})`, `cart_remove_all_${productId}`)],
       [Markup.button.callback(`Reduce by 1${unit}`, `cart_reduce_${productId}`)],

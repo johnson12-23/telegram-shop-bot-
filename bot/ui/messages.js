@@ -2,6 +2,15 @@ function formatPrice(value) {
   return `₵${Number(value || 0)}`;
 }
 
+function compactName(name, maxLen = 22) {
+  const value = String(name || '');
+  if (value.length <= maxLen) {
+    return value;
+  }
+
+  return `${value.slice(0, Math.max(1, maxLen - 1))}…`;
+}
+
 function formatProductDetails(product) {
   return [
     `${product.name}`,
@@ -18,17 +27,17 @@ function buildCartView(cartRows) {
     return '🛒 Your cart is empty. Tap Browse to add items.';
   }
 
-  const lines = cartRows.map((item, index) => `${index + 1}. ${item.name} x ${item.quantity} = ${formatPrice(item.lineTotal)}`);
+  const lines = cartRows.map((item, index) => `${index + 1}. ${compactName(item.name)} x${item.quantity} • ${formatPrice(item.lineTotal)}`);
   const total = cartRows.reduce((sum, item) => sum + item.lineTotal, 0);
   return ['🛒 Your Cart', '', ...lines, '', `Total: ${formatPrice(total)}`].join('\n');
 }
 
 function buildCheckoutSummary(cartRows) {
-  const lines = cartRows.map((item) => `• ${item.name} x ${item.quantity} = ${formatPrice(item.lineTotal)}`);
+  const lines = cartRows.map((item) => `• ${compactName(item.name)} x${item.quantity} • ${formatPrice(item.lineTotal)}`);
   const total = cartRows.reduce((sum, item) => sum + item.lineTotal, 0);
   return {
     total,
-    text: ['📋 Checkout Summary', '', ...lines, '', `Total: ${formatPrice(total)}`, '', 'Tap Confirm Order to continue.'].join('\n')
+    text: ['📋 Checkout', '', ...lines, '', `Total: ${formatPrice(total)}`, '', 'Tap Confirm to continue.'].join('\n')
   };
 }
 

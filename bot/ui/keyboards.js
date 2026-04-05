@@ -41,9 +41,9 @@ function productsKeyboard(products, group) {
 
 function productDetailKeyboard(productId) {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('Add 1', `add_${productId}_1`), Markup.button.callback('Add 2', `add_${productId}_2`), Markup.button.callback('Add 3', `add_${productId}_3`)],
+    [Markup.button.callback('+1', `add_${productId}_1`), Markup.button.callback('+2', `add_${productId}_2`), Markup.button.callback('+3', `add_${productId}_3`)],
     [Markup.button.callback('🛒 View Cart', 'menu_cart')],
-    [Markup.button.callback('⬅️ Back', 'menu_browse')]
+    [Markup.button.callback('⬅️ Back', 'menu_browse'), Markup.button.callback('🏠 Home', 'menu_home')]
   ]);
 }
 
@@ -51,27 +51,28 @@ function cartKeyboard(items) {
   const rows = [];
 
   for (const item of items) {
+    const compactName = truncate(item.name, 8);
     rows.push([
-      Markup.button.callback(`➖ ${truncate(item.name, 12)}`, `cart_dec_${item.productId}`),
-      Markup.button.callback(`❌ ${truncate(item.name, 10)}`, `cart_remove_${item.productId}`),
-      Markup.button.callback(`➕ ${truncate(item.name, 12)}`, `cart_inc_${item.productId}`)
+      Markup.button.callback(`➖ ${compactName}`, `cart_dec_${item.productId}`),
+      Markup.button.callback(`➕ ${compactName}`, `cart_inc_${item.productId}`)
     ]);
+    rows.push([Markup.button.callback(`❌ Remove ${truncate(item.name, 14)}`, `cart_remove_${item.productId}`)]);
   }
 
   rows.push([Markup.button.callback('✅ Checkout', 'checkout_open')]);
-  rows.push([Markup.button.callback('⬅️ Back', 'menu_home')]);
+  rows.push([Markup.button.callback('⬅️ Back', 'menu_home'), Markup.button.callback('🛍️ Browse', 'menu_browse')]);
   return Markup.inlineKeyboard(rows);
 }
 
 function checkoutKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('✅ Confirm Order', 'checkout_confirm')],
-    [Markup.button.callback('⬅️ Back to Cart', 'menu_cart')]
+    [Markup.button.callback('✅ Confirm', 'checkout_confirm')],
+    [Markup.button.callback('⬅️ Cart', 'menu_cart'), Markup.button.callback('🏠 Home', 'menu_home')]
   ]);
 }
 
 function deliveryPendingKeyboard() {
-  return Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel Checkout', 'checkout_cancel')]]);
+  return Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'checkout_cancel')], [Markup.button.callback('🛒 Cart', 'menu_cart')]]);
 }
 
 function orderConfirmedKeyboard(orderId) {
@@ -84,7 +85,7 @@ function orderConfirmedKeyboard(orderId) {
 
 function paymentKeyboard(orderId, paymentLink) {
   return Markup.inlineKeyboard([
-    [Markup.button.url('Open Payment Link', paymentLink)],
+    [Markup.button.url('💳 Open Payment', paymentLink)],
     [Markup.button.callback('📦 Track Order', `track_${orderId}`)],
     [Markup.button.callback('⬅️ Home', 'menu_home')]
   ]);

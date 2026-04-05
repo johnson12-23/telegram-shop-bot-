@@ -22,6 +22,7 @@ const pendingDeliverySessions = new Map();
 const localOrders = new Map();
 const actionLocks = new Map();
 const promptCooldowns = new Map();
+const callbackTapCooldowns = new Map();
 const productGroups = [
   {
     id: 'goodies',
@@ -345,6 +346,37 @@ function releaseActionLock(lockKey, cooldownMs = 900) {
   setTimeout(() => {
     actionLocks.delete(lockKey);
   }, cooldownMs);
+}
+
+function buildCallbackTapKey(ctx) {
+  const cartKey = getCartKey(ctx);
+  const messageId = ctx.callbackQuery?.message?.message_id || 'no_message';
+  const data = ctx.callbackQuery?.data || 'no_data';
+  return `${cartKey}:${messageId}:${data}`;
+}
+
+function isDuplicateTap(ctx, cooldownMs = 1400) {
+  const key = buildCallbackTapKey(ctx);
+  const now = Date.now();
+  const lastTap = callbackTapCooldowns.get(key) || 0;
+
+  if (now - lastTap < cooldownMs) {
+    return true;
+  }
+
+  callbackTapCooldowns.set(key, now);
+
+  // Keep the map small by pruning stale entries opportunistically.
+  if (callbackTapCooldowns.size > 3000) {
+    const cutoff = now - 60000;
+    for (const [entryKey, timestamp] of callbackTapCooldowns.entries()) {
+      if (timestamp < cutoff) {
+        callbackTapCooldowns.delete(entryKey);
+      }
+    }
+  }
+
+  return false;
 }
 
 async function replyWithCooldown(ctx, key, text, extra = undefined, cooldownMs = 2000) {
@@ -1022,6 +1054,20 @@ bot.on('text', async (ctx, next) => {
   }
 
   await ctx.reply('Use the inline buttons below to continue.', buildMainMenu());
+});
+
+bot.use(async (ctx, next) => {
+  if (!ctx.callbackQuery) {
+    await next();
+    return;
+  }
+
+  if (isDuplicateTap(ctx)) {
+    await safeAnswerCbQuery(ctx, 'Already processing...');
+    return;
+  }
+
+  await next();
 });
 
 bot.action('refresh_products', async (ctx) => {

@@ -20,6 +20,7 @@ const userCarts = new Map();
 const pendingCheckoutSessions = new Map();
 const pendingDeliverySessions = new Map();
 const localOrders = new Map();
+const actionLocks = new Map();
 const productGroups = [
   {
     id: 'goodies',
@@ -318,6 +319,31 @@ async function safeAnswerCbQuery(ctx, text) {
       throw error;
     }
   }
+}
+
+function buildActionLockKey(ctx, actionName) {
+  const cartKey = getCartKey(ctx);
+  const messageId = ctx.callbackQuery?.message?.message_id || 'no_message';
+  return `${actionName}:${cartKey}:${messageId}`;
+}
+
+function tryAcquireActionLock(ctx, actionName, lockMs = 1200) {
+  const key = buildActionLockKey(ctx, actionName);
+  const now = Date.now();
+  const existingAt = actionLocks.get(key);
+
+  if (existingAt && now - existingAt < lockMs) {
+    return null;
+  }
+
+  actionLocks.set(key, now);
+  return key;
+}
+
+function releaseActionLock(lockKey, cooldownMs = 900) {
+  setTimeout(() => {
+    actionLocks.delete(lockKey);
+  }, cooldownMs);
 }
 
 function formatProducts(products) {
@@ -1062,6 +1088,13 @@ bot.action(/quantity_(\d+)_(\d+)/, async (ctx) => {
 });
 
 bot.action('cart_remove_menu', async (ctx) => {
+  const lockKey = tryAcquireActionLock(ctx, 'cart_remove_menu');
+  if (!lockKey) {
+    await safeAnswerCbQuery(ctx, 'Please wait...');
+    return;
+  }
+
+  try {
   await safeAnswerCbQuery(ctx, 'Choose item to remove');
   const cartKey = getCartKey(ctx);
   const cartItems = getUserCart(cartKey);
@@ -1080,6 +1113,9 @@ bot.action('cart_remove_menu', async (ctx) => {
 
   buttons.push([Markup.button.callback('Back to Cart', 'cart_show')]);
   await ctx.reply('Select an item to remove from cart:', Markup.inlineKeyboard(buttons));
+  } finally {
+    releaseActionLock(lockKey);
+  }
 });
 
 bot.action(/cart_remove_(\d+)/, async (ctx) => {
@@ -1157,29 +1193,34 @@ bot.action('cart_show', async (ctx) => {
 });
 
 bot.action('cart_checkout', async (ctx) => {
-  await safeAnswerCbQuery(ctx, 'Processing checkout...');
-  const cartKey = getCartKey(ctx);
-  const cartItems = getUserCart(cartKey);
-
-  if (pendingDeliverySessions.has(cartKey)) {
-    await ctx.reply('Delivery details are pending. Please send your name, area, and phone number.');
+  const lockKey = tryAcquireActionLock(ctx, 'cart_checkout');
+  if (!lockKey) {
+    await safeAnswerCbQuery(ctx, 'Checkout already opened');
     return;
   }
-
-  const existingCheckout = pendingCheckoutSessions.get(cartKey);
-  if (existingCheckout && !existingCheckout.processing) {
-    await safeAnswerCbQuery(ctx, 'Confirmation already opened');
-    return;
-  }
-
-  if (!cartItems.length) {
-    await ctx.reply('Your cart is empty. Add products first.', buildCartKeyboard());
-    return;
-  }
-
-  const { products } = await loadProducts();
 
   try {
+    await safeAnswerCbQuery(ctx, 'Processing checkout...');
+    const cartKey = getCartKey(ctx);
+    const cartItems = getUserCart(cartKey);
+
+    if (pendingDeliverySessions.has(cartKey)) {
+      await ctx.reply('Delivery details are pending. Please send your name, area, and phone number.');
+      return;
+    }
+
+    const existingCheckout = pendingCheckoutSessions.get(cartKey);
+    if (existingCheckout && !existingCheckout.processing) {
+      await safeAnswerCbQuery(ctx, 'Confirmation already opened');
+      return;
+    }
+
+    if (!cartItems.length) {
+      await ctx.reply('Your cart is empty. Add products first.', buildCartKeyboard());
+      return;
+    }
+
+    const { products } = await loadProducts();
     const checkoutItems = cloneCartItems(cartItems);
     const { groupedText, total } = buildGroupedCartSummary(checkoutItems, products);
     pendingCheckoutSessions.set(cartKey, {
@@ -1214,6 +1255,8 @@ bot.action('cart_checkout', async (ctx) => {
   } catch (error) {
     console.error('Checkout error:', error);
     await ctx.reply('Could not process checkout. Please try again.');
+  } finally {
+    releaseActionLock(lockKey);
   }
 });
 
@@ -1286,72 +1329,122 @@ async function processConfirmOrder(ctx) {
 }
 
 bot.action('confirm_order', async (ctx) => {
+  const lockKey = tryAcquireActionLock(ctx, 'confirm_order');
+  if (!lockKey) {
+    await safeAnswerCbQuery(ctx, 'Already confirming...');
+    return;
+  }
+
+  try {
   await safeAnswerCbQuery(ctx, 'Confirming order...');
   await processConfirmOrder(ctx);
+  } finally {
+    releaseActionLock(lockKey);
+  }
 });
 
 bot.action('cancel_order', async (ctx) => {
-  await safeAnswerCbQuery(ctx, 'Order cancelled');
-  const cartKey = getCartKey(ctx);
-  pendingCheckoutSessions.delete(cartKey);
-  pendingDeliverySessions.delete(cartKey);
-  userCarts.set(cartKey, []);
+  const lockKey = tryAcquireActionLock(ctx, 'cancel_order');
+  if (!lockKey) {
+    await safeAnswerCbQuery(ctx, 'Already cancelled');
+    return;
+  }
 
   try {
-    await ctx.editMessageText('❌ Order cancelled\n\nYour cart has been cleared.', Markup.inlineKeyboard([
-      [Markup.button.callback('🛍️ View Products', 'open_products')]
-    ]));
-  } catch (error) {
-    await ctx.reply('❌ Order cancelled\n\nYour cart has been cleared.', Markup.inlineKeyboard([
-      [Markup.button.callback('🛍️ View Products', 'open_products')]
-    ]));
+    await safeAnswerCbQuery(ctx, 'Order cancelled');
+    const cartKey = getCartKey(ctx);
+    pendingCheckoutSessions.delete(cartKey);
+    pendingDeliverySessions.delete(cartKey);
+    userCarts.set(cartKey, []);
+
+    try {
+      await ctx.editMessageText('❌ Order cancelled\n\nYour cart has been cleared.', Markup.inlineKeyboard([
+        [Markup.button.callback('🛍️ View Products', 'open_products')]
+      ]));
+    } catch (error) {
+      await ctx.reply('❌ Order cancelled\n\nYour cart has been cleared.', Markup.inlineKeyboard([
+        [Markup.button.callback('🛍️ View Products', 'open_products')]
+      ]));
+    }
+  } finally {
+    releaseActionLock(lockKey);
   }
 });
 
 bot.action('cart_confirm_final', async (ctx) => {
+  const lockKey = tryAcquireActionLock(ctx, 'cart_confirm_final');
+  if (!lockKey) {
+    await safeAnswerCbQuery(ctx, 'Already confirming...');
+    return;
+  }
+
+  try {
   await safeAnswerCbQuery(ctx, 'Confirming order...');
   await processConfirmOrder(ctx);
+  } finally {
+    releaseActionLock(lockKey);
+  }
 });
 
 bot.action(/payment_prompt_(\d+)/, async (ctx) => {
-  const orderId = Number(ctx.match[1]);
-  await safeAnswerCbQuery(ctx, 'Opening payment options...');
-
-  const paymentMsg = [
-    '💳 Payment Prompt',
-    `Order ID: #${orderId}`,
-    '',
-    'Choose a payment option and complete payment.',
-    'After payment, tap "I Have Paid".'
-  ].join('\n');
+  const lockKey = tryAcquireActionLock(ctx, 'payment_prompt');
+  if (!lockKey) {
+    await safeAnswerCbQuery(ctx, 'Payment options already opened');
+    return;
+  }
 
   try {
-    await ctx.editMessageText(paymentMsg, Markup.inlineKeyboard([
-      [Markup.button.callback('✅ I Have Paid', `payment_done_${orderId}`)],
-      [Markup.button.callback('📞 Contact Support', 'open_products')]
-    ]));
-  } catch (error) {
-    await ctx.reply(paymentMsg, Markup.inlineKeyboard([
-      [Markup.button.callback('✅ I Have Paid', `payment_done_${orderId}`)],
-      [Markup.button.callback('📞 Contact Support', 'open_products')]
-    ]));
+    const orderId = Number(ctx.match[1]);
+    await safeAnswerCbQuery(ctx, 'Opening payment options...');
+
+    const paymentMsg = [
+      '💳 Payment Prompt',
+      `Order ID: #${orderId}`,
+      '',
+      'Choose a payment option and complete payment.',
+      'After payment, tap "I Have Paid".'
+    ].join('\n');
+
+    try {
+      await ctx.editMessageText(paymentMsg, Markup.inlineKeyboard([
+        [Markup.button.callback('✅ I Have Paid', `payment_done_${orderId}`)],
+        [Markup.button.callback('📞 Contact Support', 'open_products')]
+      ]));
+    } catch (error) {
+      await ctx.reply(paymentMsg, Markup.inlineKeyboard([
+        [Markup.button.callback('✅ I Have Paid', `payment_done_${orderId}`)],
+        [Markup.button.callback('📞 Contact Support', 'open_products')]
+      ]));
+    }
+  } finally {
+    releaseActionLock(lockKey);
   }
 });
 
 bot.action(/payment_done_(\d+)/, async (ctx) => {
-  const orderId = Number(ctx.match[1]);
-  await safeAnswerCbQuery(ctx, 'Payment status received');
-
-  const localOrder = getLocalOrderById(orderId);
-  if (localOrder) {
-    localOrder.status = 'payment_submitted';
-    localOrder.paymentUpdatedAt = new Date().toISOString();
+  const lockKey = tryAcquireActionLock(ctx, 'payment_done');
+  if (!lockKey) {
+    await safeAnswerCbQuery(ctx, 'Payment already submitted');
+    return;
   }
 
-  await ctx.reply(
-    `✅ Payment noted for Order #${orderId}.\nWe will verify and update your order status shortly.`,
-    Markup.inlineKeyboard([[Markup.button.callback('📦 Track Order', `track_${orderId}`)]])
-  );
+  try {
+    const orderId = Number(ctx.match[1]);
+    await safeAnswerCbQuery(ctx, 'Payment status received');
+
+    const localOrder = getLocalOrderById(orderId);
+    if (localOrder) {
+      localOrder.status = 'payment_submitted';
+      localOrder.paymentUpdatedAt = new Date().toISOString();
+    }
+
+    await ctx.reply(
+      `✅ Payment noted for Order #${orderId}.\nWe will verify and update your order status shortly.`,
+      Markup.inlineKeyboard([[Markup.button.callback('📦 Track Order', `track_${orderId}`)]])
+    );
+  } finally {
+    releaseActionLock(lockKey);
+  }
 });
 
 bot.action(/track_(\d+)/, async (ctx) => {

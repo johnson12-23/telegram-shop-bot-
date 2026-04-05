@@ -642,13 +642,13 @@ async function getOrderById(orderId) {
 }
 
 function buildMainMenu() {
-  return Markup.keyboard([
-    ['🛍️ View Products'],
-    ['🔍 Search'],
-    ['📦 Track Order'],
-    ['🛒 My Cart'],
-    ['❓ Help']
-  ]).resize();
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('🛍️ View Products', 'menu_products')],
+    [Markup.button.callback('🔍 Search', 'menu_search')],
+    [Markup.button.callback('📦 Track Order', 'menu_track')],
+    [Markup.button.callback('🛒 My Cart', 'menu_cart')],
+    [Markup.button.callback('❓ Help', 'menu_help')]
+  ]);
 }
 
 async function showHelp(ctx) {
@@ -857,9 +857,50 @@ bot.command('status', async (ctx) => {
     ? `API status: OK (${health.status})`
     : `API status: Unavailable (${health.reason || health.status || 'unknown'})`;
 
-  await ctx.reply(`Bot status: online\n${details}\nMode: ${mode}`);
+  await ctx.reply(`Bot status: online\n${details}\nMode: ${mode}`, buildMainMenu());
 });
 
+bot.action('menu_products', async (ctx) => {
+  await safeAnswerCbQuery(ctx, 'Opening products');
+  const contextKey = getContextKey(ctx);
+  pendingSearchUsers.delete(contextKey);
+  pendingTrackUsers.delete(contextKey);
+  await sendCategorySelection(ctx);
+});
+
+bot.action('menu_search', async (ctx) => {
+  await safeAnswerCbQuery(ctx, 'Search ready');
+  const contextKey = getContextKey(ctx);
+  pendingSearchUsers.add(contextKey);
+  pendingTrackUsers.delete(contextKey);
+  await ctx.reply('Send one keyword. Example: gold, cake, sobolo.', buildMainMenu());
+});
+
+bot.action('menu_track', async (ctx) => {
+  await safeAnswerCbQuery(ctx, 'Tracking ready');
+  const contextKey = getContextKey(ctx);
+  pendingTrackUsers.add(contextKey);
+  pendingSearchUsers.delete(contextKey);
+  await ctx.reply('Send your order ID, like 12.', buildMainMenu());
+});
+
+bot.action('menu_cart', async (ctx) => {
+  await safeAnswerCbQuery(ctx, 'Opening cart');
+  const contextKey = getContextKey(ctx);
+  pendingSearchUsers.delete(contextKey);
+  pendingTrackUsers.delete(contextKey);
+  await showCart(ctx);
+});
+
+bot.action('menu_help', async (ctx) => {
+  await safeAnswerCbQuery(ctx, 'Opening help');
+  const contextKey = getContextKey(ctx);
+  pendingSearchUsers.delete(contextKey);
+  pendingTrackUsers.delete(contextKey);
+  await showHelp(ctx);
+});
+
+// Backward compatibility for older reply-keyboard users.
 bot.hears('🛍️ View Products', async (ctx) => {
   const contextKey = getContextKey(ctx);
   pendingSearchUsers.delete(contextKey);

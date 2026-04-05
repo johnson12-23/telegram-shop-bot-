@@ -12,7 +12,7 @@ services:
       - key: API_PORT
         value: 4000
 
-  - type: web
+  - type: worker
     name: telegram-shop-bot-worker
     env: node
     plan: free
@@ -20,7 +20,6 @@ services:
     buildCommand: npm ci --only=production 2>/dev/null || npm install
     startCommand: npm run start:bot
     autoDeploy: true
-    healthCheckPath: /health
     envVars:
       - key: BOT_TOKEN
         sync: false

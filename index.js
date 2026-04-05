@@ -827,8 +827,61 @@ bot.action(/cart_remove_(\d+)/, async (ctx) => {
   const userId = getContextKey(ctx);
   const productId = Number(ctx.match[1]);
   const cartItems = getUserCart(userId);
+  const itemIndex = cartItems.findIndex((item) => Number(item.productId) === productId);
+
+  if (itemIndex === -1) {
+    await ctx.reply('Item not found in cart.');
+    return;
+  }
+
+  const item = cartItems[itemIndex];
+  
+  // Show options to adjust quantity
+  const { products } = await loadProducts();
+  const product = products.find((entry) => Number(entry.id) === productId);
+  const unit = product ? getProductUnit(product) : 'unit';
+  const productName = product?.name || `Product #${productId}`;
+
+  await ctx.reply(
+    `Adjusting: ${productName}\nCurrent quantity: ${item.quantity}${unit}\n\nWhat would you like to do?`,
+    Markup.inlineKeyboard([
+      [Markup.button.callback(`Remove all (${item.quantity}${unit})`, `cart_remove_all_${productId}`)],
+      [Markup.button.callback(`Reduce by 1${unit}`, `cart_reduce_${productId}`)],
+      [Markup.button.callback('Keep as is', 'cart_show')]
+    ])
+  );
+});
+
+bot.action(/cart_remove_all_(\d+)/, async (ctx) => {
+  await safeAnswerCbQuery(ctx, 'Removing...');
+  const userId = getContextKey(ctx);
+  const productId = Number(ctx.match[1]);
+  const cartItems = getUserCart(userId);
   const updated = cartItems.filter((item) => Number(item.productId) !== productId);
   userCarts.set(userId, updated);
+
+  await showCart(ctx);
+});
+
+bot.action(/cart_reduce_(\d+)/, async (ctx) => {
+  await safeAnswerCbQuery(ctx, 'Reducing quantity...');
+  const userId = getContextKey(ctx);
+  const productId = Number(ctx.match[1]);
+  const cartItems = getUserCart(userId);
+  const item = cartItems.find((entry) => Number(entry.productId) === productId);
+
+  if (!item) {
+    await ctx.reply('Item not found.');
+    return;
+  }
+
+  if (item.quantity > 1) {
+    item.quantity -= 1;
+    item.lineTotal = item.quantity * item.unitPrice;
+  } else {
+    const updated = cartItems.filter((entry) => Number(entry.productId) !== productId);
+    userCarts.set(userId, updated);
+  }
 
   await showCart(ctx);
 });
@@ -848,6 +901,53 @@ bot.action('cart_checkout', async (ctx) => {
     return;
   }
 
+  const { products } = await loadProducts();
+  const customerName = getContextLabel(ctx);
+
+  try {
+    // Show order summary before final confirmation
+    const itemLines = cartItems.map((item) => {
+      const product = products.find((entry) => Number(entry.id) === Number(item.productId));
+      const productName = product?.name || `Product #${item.productId}`;
+      return `• ${item.quantity} ${getProductUnit(product)} ${productName} = ₵${item.lineTotal}`;
+    });
+
+    const total = cartItems.reduce((sum, item) => sum + item.lineTotal, 0);
+    const confirmationMsg = [
+      '📋 Order Confirmation',
+      '',
+      'Reviewing your complete order:',
+      '',
+      itemLines.join('\n'),
+      '',
+      `Final Total: ₵${total}`,
+      '',
+      'Click "Confirm Order" to complete your purchase.'
+    ].join('\n');
+
+    await ctx.reply(
+      confirmationMsg,
+      Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Confirm Order', 'cart_confirm_final')],
+        [Markup.button.callback('❌ Cancel', 'cart_show')]
+      ])
+    );
+  } catch (error) {
+    console.error('Checkout error:', error);
+    await ctx.reply('Could not process checkout. Please try again.');
+  }
+});
+
+bot.action('cart_confirm_final', async (ctx) => {
+  await safeAnswerCbQuery(ctx, 'Finalizing order...');
+  const userId = getContextKey(ctx);
+  const cartItems = getUserCart(userId);
+
+  if (!cartItems.length) {
+    await ctx.reply('Your cart is empty. Add products first.', buildCartKeyboard());
+    return;
+  }
+
   const customerName = getContextLabel(ctx);
 
   try {
@@ -856,7 +956,10 @@ bot.action('cart_checkout', async (ctx) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         customerName,
-        items: cartItems.map((item) => ({ productId: item.productId, quantity: item.quantity }))
+        items: cartItems.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity
+        }))
       })
     });
 
@@ -868,14 +971,15 @@ bot.action('cart_checkout', async (ctx) => {
     userCarts.set(userId, []);
 
     await ctx.reply(
-      `Checkout complete.\n\nOrder ID: ${order.id}\nTotal: ₵${order.total}\nStatus: ${order.status}\n\nNext step: track your order or continue shopping.`,
+      `✅ Checkout complete!\n\nOrder ID: ${order.id}\nTotal: ₵${order.total}\nStatus: ${order.status}\nCreated: ${order.createdAt}\n\nNext step: track your order or continue shopping.`,
       Markup.inlineKeyboard([
-        [Markup.button.callback('Track this order', `track_${order.id}`)],
-        [Markup.button.callback('View Products', 'open_products')]
+        [Markup.button.callback('📦 Track this order', `track_${order.id}`)],
+        [Markup.button.callback('🛍️ View Products', 'open_products')]
       ])
     );
   } catch (error) {
-    await ctx.reply('Checkout failed right now. Please try again.');
+    console.error('Final checkout error:', error);
+    await ctx.reply('❌ Checkout failed. Please try again or contact support.');
   }
 });
 

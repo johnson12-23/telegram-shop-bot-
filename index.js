@@ -1388,8 +1388,10 @@ async function processConfirmOrder(ctx) {
       itemCount: cartItems.length
     });
 
+    const { products } = await loadProducts();
+    const { groupedText, total } = buildGroupedCartSummary(cartItems, products);
+
     pendingCheckoutSessions.delete(cartKey);
-    const total = cartItems.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
     pendingDeliverySessions.set(cartKey, {
       items: cloneCartItems(cartItems),
       total,
@@ -1401,6 +1403,9 @@ async function processConfirmOrder(ctx) {
       '✅ Cart validated',
       `Items: ${cartItems.length}`,
       `Total: ₵${total}`,
+      '',
+      'Selected items:',
+      groupedText,
       '',
       'Send your delivery details in one message:',
       'Name, area, phone number.'

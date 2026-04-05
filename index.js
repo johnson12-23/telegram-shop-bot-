@@ -6,7 +6,10 @@ const path = require('path');
 
 const botToken = process.env.BOT_TOKEN;
 const botTokenMissing = !botToken || !botToken.trim();
-const apiBaseUrl = (process.env.API_BASE_URL || 'http://localhost:4000').replace(/\/+$/, '');
+const defaultApiBaseUrl = process.env.RENDER
+  ? 'https://telegram-shop-api.onrender.com'
+  : 'http://localhost:4000';
+const apiBaseUrl = (process.env.API_BASE_URL || defaultApiBaseUrl).replace(/\/+$/, '');
 const botMode = (process.env.BOT_MODE || 'auto').toLowerCase();
 const webhookUrl = (process.env.WEBHOOK_URL || '').trim().replace(/\/+$/, '');
 const webhookPath = process.env.WEBHOOK_PATH || '/telegram/webhook';
@@ -373,6 +376,39 @@ async function createOrder(customerName, productId, quantity = 1) {
   }
 
   return response.json();
+}
+
+async function submitCartOrder(customerName, cartItems, retries = 3) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerName,
+          items: cartItems.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity
+          }))
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Checkout request failed: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries) {
+        await sleep(500 * attempt);
+      }
+    }
+  }
+
+  throw lastError || new Error('Checkout failed after retries');
 }
 
 function getUserCart(userId) {
@@ -1011,23 +1047,7 @@ bot.action('cart_confirm_final', async (ctx) => {
   const customerName = getContextLabel(ctx);
 
   try {
-    const response = await fetch(`${apiBaseUrl}/api/orders`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customerName,
-        items: cartItems.map((item) => ({
-          productId: item.productId,
-          quantity: item.quantity
-        }))
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Checkout request failed: ${response.status}`);
-    }
-
-    const order = await response.json();
+    const order = await submitCartOrder(customerName, cartItems);
     userCarts.set(cartKey, []);
 
     await ctx.reply(
@@ -1039,7 +1059,7 @@ bot.action('cart_confirm_final', async (ctx) => {
     );
   } catch (error) {
     console.error('Final checkout error:', error);
-    await ctx.reply('❌ Checkout failed. Please try again or contact support.');
+    await ctx.reply('❌ Checkout failed. Please try again in a moment. If it persists, contact support.');
   }
 });
 

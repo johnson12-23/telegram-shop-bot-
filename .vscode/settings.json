@@ -1,0 +1,10 @@
+{
+  "typescript.validate.enable": false,
+  "javascript.validate.enable": true,
+  "search.exclude": {
+    "**/node_modules": true
+  },
+  "files.watcherExclude": {
+    "**/node_modules/**": true
+  }
+}

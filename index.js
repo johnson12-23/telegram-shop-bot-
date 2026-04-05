@@ -422,8 +422,9 @@ async function addToCartFlow(ctx, productId, grams) {
     });
   }
 
+  const unit = getProductUnit(product);
   await ctx.reply(
-    `Added to cart: ${grams}g ${product.name}\nCurrent line total: $${(existing || cartItems[cartItems.length - 1]).lineTotal}`,
+    `Added to cart: ${grams}${unit} ${product.name}\nCurrent line total: $${(existing || cartItems[cartItems.length - 1]).lineTotal}`,
     buildCartKeyboard()
   );
 }
@@ -493,36 +494,52 @@ function getProductsByGroup(products, groupId) {
   return products.filter((product) => (product.group || 'goodies') === groupId);
 }
 
+function getProductUnit(product) {
+  return (product.group || 'goodies') === 'drinks' ? 'L' : 'g';
+}
+
+function getProductUnitLabel(product) {
+  return (product.group || 'goodies') === 'drinks' ? 'litre' : 'gram';
+}
+
 function formatGroupProducts(groupName, groupProducts) {
   if (!groupProducts.length) {
     return `${groupName}\n\nNo products available right now.`;
   }
 
-  const lines = groupProducts.map((product, index) => `${index + 1}. ${product.name} - $${product.price}/g`);
+  const lines = groupProducts.map((product, index) => {
+    const unit = getProductUnit(product);
+    return `${index + 1}. ${product.name} - $${product.price}/${unit}`;
+  });
   return [groupName, '', `${groupProducts.length} item${groupProducts.length === 1 ? '' : 's'} available`, '', lines.join('\n')].join('\n');
 }
 
 function formatProductDetail(product) {
   const group = productGroups.find((entry) => entry.id === (product.group || 'goodies'));
   const collectionLabel = group ? `${group.icon} ${group.name}` : 'COLLECTION';
+  const unit = getProductUnit(product);
+  const unitLabel = getProductUnitLabel(product);
 
   return [
     `Selected: ${product.name}`,
     `Collection: ${collectionLabel}`,
-    `Price: $${product.price}/g`,
+    `Price: $${product.price}/${unit}`,
     '',
     'About this item:',
     product.description,
     '',
-    'Choose grams to continue:'
+    `Choose ${unitLabel}s to continue:`
   ].join('\n');
 }
 
-function buildQuantityKeyboard(productId) {
+function buildQuantityKeyboard(product) {
+  const productId = product.id;
+  const unit = getProductUnit(product);
+  
   return Markup.inlineKeyboard([
-    [Markup.button.callback('1g', `grams_${productId}_1`)],
-    [Markup.button.callback('2g', `grams_${productId}_2`)],
-    [Markup.button.callback('3g', `grams_${productId}_3`)],
+    [Markup.button.callback(`1${unit}`, `grams_${productId}_1`)],
+    [Markup.button.callback(`2${unit}`, `grams_${productId}_2`)],
+    [Markup.button.callback(`3${unit}`, `grams_${productId}_3`)],
     [Markup.button.callback('⬅️ Back to collections', 'open_products')]
   ]);
 }
@@ -531,9 +548,10 @@ function buildGroupProductsKeyboard(groupId, groupProducts) {
   const productButtons = [];
 
   for (let index = 0; index < groupProducts.length; index += 2) {
-    const row = groupProducts.slice(index, index + 2).map((product) =>
-      Markup.button.callback(`${product.name} - $${product.price}/g`, `category_${product.id}`)
-    );
+    const row = groupProducts.slice(index, index + 2).map((product) => {
+      const unit = getProductUnit(product);
+      return Markup.button.callback(`${product.name} - $${product.price}/${unit}`, `category_${product.id}`);
+    });
     productButtons.push(row);
   }
 
@@ -726,7 +744,7 @@ bot.action(/category_(\d+)/, async (ctx) => {
 
     await ctx.reply(
       formatProductDetail(product),
-      buildQuantityKeyboard(productId)
+      buildQuantityKeyboard(product)
     );
   } catch (error) {
     await safeAnswerCbQuery(ctx, 'Category failed');
@@ -749,7 +767,7 @@ bot.action(/buy_(\d+)/, async (ctx) => {
 
     await ctx.reply(
       formatProductDetail(product),
-      buildQuantityKeyboard(productId)
+      buildQuantityKeyboard(product)
     );
   } catch (error) {
     await safeAnswerCbQuery(ctx, 'Order failed');

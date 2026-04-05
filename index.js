@@ -380,19 +380,62 @@ function getUserCart(userId) {
   return userCarts.get(cartKey);
 }
 
+function buildGroupedCartSummary(cartItems, products) {
+  const sections = new Map();
+
+  for (const group of productGroups) {
+    sections.set(group.id, {
+      heading: `${group.icon} ${group.name}`,
+      lines: []
+    });
+  }
+
+  sections.set('other', {
+    heading: '📦 OTHER',
+    lines: []
+  });
+
+  for (const item of cartItems) {
+    const product = products.find((entry) => Number(entry.id) === Number(item.productId));
+    const groupId = product?.group || 'other';
+    const section = sections.get(groupId) || sections.get('other');
+    const productName = product?.name || `Product #${item.productId}`;
+    const unit = getProductUnit(product);
+    section.lines.push(`• ${item.quantity}${unit} ${productName} - ₵${item.lineTotal}`);
+  }
+
+  const orderedGroupIds = [...productGroups.map((group) => group.id), 'other'];
+  const groupedLines = [];
+
+  for (const groupId of orderedGroupIds) {
+    const section = sections.get(groupId);
+    if (!section || section.lines.length === 0) {
+      continue;
+    }
+
+    groupedLines.push(section.heading);
+    groupedLines.push(...section.lines);
+    groupedLines.push('');
+  }
+
+  if (groupedLines[groupedLines.length - 1] === '') {
+    groupedLines.pop();
+  }
+
+  const total = cartItems.reduce((sum, item) => sum + item.lineTotal, 0);
+  return {
+    groupedText: groupedLines.join('\n'),
+    total
+  };
+}
+
 function formatCartMessage(cartItems, products) {
   if (!cartItems.length) {
     return '🛒 Your Cart\n\nYour cart is empty. Add products to continue shopping.';
   }
 
-  const lines = cartItems.map((item, index) => {
-    const product = products.find((entry) => Number(entry.id) === Number(item.productId));
-    const productName = product?.name || `Product #${item.productId}`;
-    return `${index + 1}x ${productName} - ₵${item.lineTotal}`;
-  });
-
-  const total = cartItems.reduce((sum, item) => sum + item.lineTotal, 0);
-  return `🛒 Your Cart\n\n${lines.join('\n')}\n\nTotal: ₵${total}`;
+  const { groupedText, total } = buildGroupedCartSummary(cartItems, products);
+  return `🛒 Your Cart\n\n${groupedText}\n\nTotal: ₵${total}`;
 }
 
 function buildCartKeyboard() {
@@ -507,11 +550,11 @@ function getProductsByGroup(products, groupId) {
 }
 
 function getProductUnit(product) {
-  return (product.group || 'goodies') === 'drinks' ? 'L' : 'g';
+  return (product?.group || 'goodies') === 'drinks' ? 'L' : 'g';
 }
 
 function getProductUnitLabel(product) {
-  return (product.group || 'goodies') === 'drinks' ? 'litre' : 'gram';
+  return (product?.group || 'goodies') === 'drinks' ? 'litre' : 'gram';
 }
 
 function formatGroupProducts(groupName, groupProducts) {
@@ -924,20 +967,13 @@ bot.action('cart_checkout', async (ctx) => {
   const customerName = getContextLabel(ctx);
 
   try {
-    // Show order summary before final confirmation
-    const itemLines = cartItems.map((item) => {
-      const product = products.find((entry) => Number(entry.id) === Number(item.productId));
-      const productName = product?.name || `Product #${item.productId}`;
-      return `• ${item.quantity} ${getProductUnit(product)} ${productName} = ₵${item.lineTotal}`;
-    });
-
-    const total = cartItems.reduce((sum, item) => sum + item.lineTotal, 0);
+    const { groupedText, total } = buildGroupedCartSummary(cartItems, products);
     const confirmationMsg = [
       '📋 Order Confirmation',
       '',
-      'Reviewing your complete order:',
+      'Reviewing your complete cart (all groups):',
       '',
-      itemLines.join('\n'),
+      groupedText,
       '',
       `Final Total: ₵${total}`,
       '',

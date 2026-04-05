@@ -4,7 +4,7 @@ services:
     env: node
     plan: free
     rootDir: .
-    buildCommand: npm install
+    buildCommand: npm ci --only=production 2>/dev/null || npm install
     startCommand: npm run start:api
     autoDeploy: true
     healthCheckPath: /health
@@ -17,7 +17,7 @@ services:
     env: node
     plan: free
     rootDir: .
-    buildCommand: npm install
+    buildCommand: npm ci --only=production 2>/dev/null || npm install
     startCommand: npm run start:bot
     autoDeploy: true
     healthCheckPath: /health
@@ -25,12 +25,12 @@ services:
       - key: BOT_TOKEN
         sync: false
       - key: API_BASE_URL
-        sync: false
+        value: http://telegram-shop-api.onrender.com
       - key: BOT_MODE
         value: auto
       - key: WEBHOOK_PATH
         value: /telegram/webhook
       - key: WEBHOOK_URL
-        sync: false
+        value: https://telegram-shop-bot-worker.onrender.com
       - key: WEBHOOK_SECRET_TOKEN
         sync: false

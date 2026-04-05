@@ -159,12 +159,19 @@ healthApp.get('/health', (req, res) => {
 
 function startHealthServer() {
   if (healthServerStarted) {
+    console.log('[Health] Server already started, skipping...');
     return;
   }
 
   healthServerStarted = true;
-  healthApp.listen(healthPort, () => {
-    console.log(`Health server listening on port ${healthPort}`);
+  
+  return new Promise((resolve) => {
+    const server = healthApp.listen(healthPort, '0.0.0.0', () => {
+      console.log(`✅ Health server listening on 0.0.0.0:${healthPort}`);
+      console.log(`   → GET http://localhost:${healthPort}/health`);
+      console.log(`   → GET http://localhost:${healthPort}/`);
+      resolve(server);
+    });
   });
 }
 
@@ -1016,8 +1023,12 @@ async function startBot() {
     throw new Error('WEBHOOK_URL must be set when BOT_MODE is webhook or auto resolves to webhook');
   }
 
-  if (runtimeMode === 'polling') {
-    startHealthServer();
+  // Always start the health server first (needed for Render health checks in both modes)
+  try {
+    await startHealthServer();
+  } catch (error) {
+    console.error('❌ Failed to start health server:', error);
+    throw error;
   }
 
   while (true) {
@@ -1025,7 +1036,7 @@ async function startBot() {
       acquireBotLock();
 
       if (runtimeMode === 'webhook') {
-        console.log(`Starting bot in webhook mode at ${webhookPath} on port ${healthPort}...`);
+        console.log(`🔗 Starting bot in webhook mode at ${webhookPath} on port ${healthPort}...`);
         await bot.launch({
           webhook: {
             domain: webhookUrl,
@@ -1036,16 +1047,16 @@ async function startBot() {
             secretToken: webhookSecretToken
           }
         });
-        console.log('Webhook connected.');
+        console.log('✅ Webhook connected and receiving updates.');
       } else {
-        console.log('Starting bot in polling mode...');
+        console.log('📡 Starting bot in polling mode...');
         await bot.telegram.deleteWebhook({ drop_pending_updates: false });
         await bot.launch({ dropPendingUpdates: false });
-        console.log('Polling connected.');
+        console.log('✅ Polling connected and listening for updates.');
       }
 
       const me = await bot.telegram.getMe();
-      console.log(`Bot is running as @${me.username} (${runtimeMode})`);
+      console.log(`🤖 Bot is running as @${me.username} (${runtimeMode})`);
       return;
     } catch (error) {
       releaseBotLock();
@@ -1054,10 +1065,10 @@ async function startBot() {
       const backoffMs = Math.min(2000 * attempt, maxBackoffMs);
 
       if (isConflict) {
-        console.warn(`Telegram conflict detected. Retrying in ${backoffMs}ms...`);
+        console.warn(`⚠️  Telegram conflict (409): Another instance active. Retrying in ${backoffMs}ms...`);
       } else {
-        console.error(`Failed to launch bot (attempt ${attempt}):`, error);
-        console.log(`Retrying launch in ${backoffMs}ms...`);
+        console.error(`❌ Failed to launch bot (attempt ${attempt}):`, error.message);
+        console.log(`🔄 Retrying launch in ${backoffMs}ms...`);
       }
 
       await sleep(backoffMs);

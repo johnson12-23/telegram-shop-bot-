@@ -901,41 +901,6 @@ bot.action('menu_help', async (ctx) => {
 });
 
 // Backward compatibility for older reply-keyboard users.
-bot.hears('🛍️ View Products', async (ctx) => {
-  const contextKey = getContextKey(ctx);
-  pendingSearchUsers.delete(contextKey);
-  pendingTrackUsers.delete(contextKey);
-  await sendCategorySelection(ctx);
-});
-
-bot.hears('🔍 Search', async (ctx) => {
-  const contextKey = getContextKey(ctx);
-  pendingSearchUsers.add(contextKey);
-  pendingTrackUsers.delete(contextKey);
-  await ctx.reply('Send one keyword. Example: gold, cake, sobolo.', buildMainMenu());
-});
-
-bot.hears('📦 Track Order', async (ctx) => {
-  const contextKey = getContextKey(ctx);
-  pendingTrackUsers.add(contextKey);
-  pendingSearchUsers.delete(contextKey);
-  await ctx.reply('Send your order ID, like 12.', buildMainMenu());
-});
-
-bot.hears('🛒 My Cart', async (ctx) => {
-  const contextKey = getContextKey(ctx);
-  pendingSearchUsers.delete(contextKey);
-  pendingTrackUsers.delete(contextKey);
-  await showCart(ctx);
-});
-
-bot.hears('❓ Help', async (ctx) => {
-  const contextKey = getContextKey(ctx);
-  pendingSearchUsers.delete(contextKey);
-  pendingTrackUsers.delete(contextKey);
-  await showHelp(ctx);
-});
-
 bot.on('text', async (ctx, next) => {
   const userId = getContextKey(ctx);
   const cartKey = getCartKey(ctx);
@@ -1053,7 +1018,10 @@ bot.on('text', async (ctx, next) => {
     } catch (error) {
       await ctx.reply('Could not fetch order status right now.', buildMainMenu());
     }
+    return;
   }
+
+  await ctx.reply('Use the inline buttons below to continue.', buildMainMenu());
 });
 
 bot.action('refresh_products', async (ctx) => {

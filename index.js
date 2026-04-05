@@ -700,27 +700,46 @@ async function sendCategorySelection(ctx, useEditMessage = false) {
   }
 }
 
-async function sendWelcomeMessage(ctx) {
+function resetSessionState(ctx) {
   const contextKey = getContextKey(ctx);
+  const cartKey = getCartKey(ctx);
+
   pendingSearchUsers.delete(contextKey);
   pendingTrackUsers.delete(contextKey);
+  pendingSearchUsers.delete(cartKey);
+  pendingTrackUsers.delete(cartKey);
+  userCarts.set(cartKey, []);
+}
+
+async function sendWelcomeMessage(ctx, options = {}) {
+  const { restarted = false } = options;
+
+  resetSessionState(ctx);
 
   const anonymousSessionNote = ctx.from
     ? ''
     : '\n\n<b>Anonymous-safe session active.</b> Replies and cart state are scoped to this chat.';
 
+  const restartNote = restarted
+    ? '\n\n<b>Session restarted.</b> Previous cart and pending actions were cleared.'
+    : '';
+
   await ctx.replyWithHTML(
-    `Welcome to our private collection.\n\nQuick access for mobile: browse collections, search products, track orders, and manage your cart.\n\n🛍️ <b>What you can do:</b>\n• Browse GOODIES, EDIBLES, and DRINKS\n• View item details and add to cart\n• Check order status\n• Complete checkout in one cart\n\nTap "View Products" to begin.${anonymousSessionNote}`,
+    `Welcome to our private collection.\n\nQuick access for mobile: browse collections, search products, track orders, and manage your cart.\n\n🛍️ <b>What you can do:</b>\n• Browse GOODIES, EDIBLES, and DRINKS\n• View item details and add to cart\n• Check order status\n• Complete checkout in one cart\n\nTap "View Products" to begin.${restartNote}${anonymousSessionNote}`,
     buildMainMenu()
   );
 }
 
 bot.start(async (ctx) => {
-  await sendWelcomeMessage(ctx);
+  await sendWelcomeMessage(ctx, { restarted: true });
 });
 
 bot.hears(/^\?start$/i, async (ctx) => {
-  await sendWelcomeMessage(ctx);
+  await sendWelcomeMessage(ctx, { restarted: true });
+});
+
+bot.hears(/^start$/i, async (ctx) => {
+  await sendWelcomeMessage(ctx, { restarted: true });
 });
 
 bot.command('products', async (ctx) => {

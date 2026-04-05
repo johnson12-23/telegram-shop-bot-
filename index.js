@@ -284,7 +284,7 @@ async function safeAnswerCbQuery(ctx, text) {
 
 function formatProducts(products) {
   return products
-    .map((product, index) => `${index + 1}. ${product.name} - $${product.price}\n${product.description}`)
+    .map((product, index) => `${index + 1}. ${product.name} - ₵${product.price}\n${product.description}`)
     .join('\n\n');
 }
 
@@ -376,11 +376,11 @@ function formatCartMessage(cartItems, products) {
   const lines = cartItems.map((item, index) => {
     const product = products.find((entry) => Number(entry.id) === Number(item.productId));
     const productName = product?.name || `Product #${item.productId}`;
-    return `${index + 1}x ${productName} - $${item.lineTotal}`;
+    return `${index + 1}x ${productName} - ₵${item.lineTotal}`;
   });
 
   const total = cartItems.reduce((sum, item) => sum + item.lineTotal, 0);
-  return `🛒 Your Cart\n\n${lines.join('\n')}\n\nTotal: $${total}`;
+  return `🛒 Your Cart\n\n${lines.join('\n')}\n\nTotal: ₵${total}`;
 }
 
 function buildCartKeyboard() {
@@ -424,7 +424,7 @@ async function addToCartFlow(ctx, productId, grams) {
 
   const unit = getProductUnit(product);
   await ctx.reply(
-    `Added to cart: ${grams}${unit} ${product.name}\nCurrent line total: $${(existing || cartItems[cartItems.length - 1]).lineTotal}`,
+    `Added to cart: ${grams}${unit} ${product.name}\nCurrent line total: ₵${(existing || cartItems[cartItems.length - 1]).lineTotal}`,
     buildCartKeyboard()
   );
 }
@@ -468,7 +468,7 @@ async function trackOrderById(ctx, orderId) {
   }
 
   await ctx.reply(
-    `Order update\nOrder ID: ${order.id}\nStatus: ${order.status}\nTotal: $${order.total}\nCreated: ${order.createdAt}`,
+    `Order update\nOrder ID: ${order.id}\nStatus: ${order.status}\nTotal: ₵${order.total}\nCreated: ${order.createdAt}`,
     Markup.inlineKeyboard([[Markup.button.callback('View Products', 'open_products')]])
   );
 }
@@ -509,7 +509,7 @@ function formatGroupProducts(groupName, groupProducts) {
 
   const lines = groupProducts.map((product, index) => {
     const unit = getProductUnit(product);
-    return `${index + 1}. ${product.name} - $${product.price}/${unit}`;
+    return `${index + 1}. ${product.name} - ₵${product.price}/${unit}`;
   });
   return [groupName, '', `${groupProducts.length} item${groupProducts.length === 1 ? '' : 's'} available`, '', lines.join('\n')].join('\n');
 }
@@ -523,7 +523,7 @@ function formatProductDetail(product) {
   return [
     `Selected: ${product.name}`,
     `Collection: ${collectionLabel}`,
-    `Price: $${product.price}/${unit}`,
+    `Price: ₵${product.price}/${unit}`,
     '',
     'About this item:',
     product.description,
@@ -550,7 +550,7 @@ function buildGroupProductsKeyboard(groupId, groupProducts) {
   for (let index = 0; index < groupProducts.length; index += 2) {
     const row = groupProducts.slice(index, index + 2).map((product) => {
       const unit = getProductUnit(product);
-      return Markup.button.callback(`${product.name} - $${product.price}/${unit}`, `category_${product.id}`);
+      return Markup.button.callback(`${product.name} - ₵${product.price}/${unit}`, `category_${product.id}`);
     });
     productButtons.push(row);
   }
@@ -868,7 +868,7 @@ bot.action('cart_checkout', async (ctx) => {
     userCarts.set(userId, []);
 
     await ctx.reply(
-      `Checkout complete.\n\nOrder ID: ${order.id}\nTotal: $${order.total}\nStatus: ${order.status}\n\nNext step: track your order or continue shopping.`,
+      `Checkout complete.\n\nOrder ID: ${order.id}\nTotal: ₵${order.total}\nStatus: ${order.status}\n\nNext step: track your order or continue shopping.`,
       Markup.inlineKeyboard([
         [Markup.button.callback('Track this order', `track_${order.id}`)],
         [Markup.button.callback('View Products', 'open_products')]

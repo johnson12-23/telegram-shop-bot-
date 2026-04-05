@@ -596,6 +596,15 @@ function formatCartMessage(cartItems, products) {
   return `🛒 Your Cart\n\n${groupedText}\n\nTotal: ₵${total}`;
 }
 
+function buildSelectedItemsText(cartItems, products) {
+  const { groupedText, total } = buildGroupedCartSummary(cartItems, products);
+  return {
+    groupedText,
+    total,
+    message: ['Selected items:', groupedText, '', `Total: ₵${total}`].join('\n')
+  };
+}
+
 function buildCartKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('➕ Add More', 'open_products')],
@@ -969,9 +978,23 @@ bot.on('text', async (ctx, next) => {
       return;
     }
 
+    const { products } = await loadProducts();
+    const { groupedText, total: selectedTotal } = buildSelectedItemsText(session.items, products);
+
+    await ctx.reply(
+      [
+        '⏳ Submitting your order...',
+        '',
+        groupedText,
+        '',
+        `Total: ₵${selectedTotal}`,
+        `Delivery: ${deliveryDetails}`
+      ].join('\n')
+    );
+
     const customerName = getContextLabel(ctx);
     const localOrderId = generateOrderId();
-    const localTotal = session.total;
+    const localTotal = selectedTotal;
 
     const localOrder = {
       orderId: localOrderId,
@@ -1389,7 +1412,21 @@ async function processConfirmOrder(ctx) {
     });
 
     const { products } = await loadProducts();
-    const { groupedText, total } = buildGroupedCartSummary(cartItems, products);
+    const { groupedText, total } = buildSelectedItemsText(cartItems, products);
+
+    try {
+      await ctx.editMessageText(
+        [
+          '⏳ Preparing checkout details...',
+          '',
+          groupedText,
+          '',
+          `Total: ₵${total}`
+        ].join('\n')
+      );
+    } catch (statusError) {
+      // Ignore edit failures and continue to final feedback message.
+    }
 
     pendingCheckoutSessions.delete(cartKey);
     pendingDeliverySessions.set(cartKey, {

@@ -18,6 +18,7 @@ const pendingSearchUsers = new Set();
 const pendingTrackUsers = new Set();
 const userCarts = new Map();
 const pendingCheckoutSessions = new Map();
+const pendingDeliverySessions = new Map();
 const localOrders = new Map();
 const productGroups = [
   {
@@ -436,6 +437,14 @@ function cloneCartItems(cartItems) {
   }));
 }
 
+function generateOrderId() {
+  return Math.floor(1000 + Math.random() * 9000);
+}
+
+function normalizeDeliveryDetails(text) {
+  return String(text || '').trim().replace(/\s+/g, ' ').slice(0, 240);
+}
+
 function buildGroupedCartSummary(cartItems, products) {
   const sections = new Map();
 
@@ -514,6 +523,7 @@ async function addToCartFlow(ctx, productId, grams) {
   const cartKey = getCartKey(ctx);
   const cartItems = getUserCart(cartKey);
   pendingCheckoutSessions.delete(cartKey);
+  pendingDeliverySessions.delete(cartKey);
   const { products } = await loadProducts();
   const product = products.find((entry) => Number(entry.id) === productId);
 
@@ -725,6 +735,7 @@ function resetSessionState(ctx) {
   pendingSearchUsers.delete(cartKey);
   pendingTrackUsers.delete(cartKey);
   pendingCheckoutSessions.delete(cartKey);
+  pendingDeliverySessions.delete(cartKey);
   userCarts.set(cartKey, []);
 }
 
@@ -810,10 +821,87 @@ bot.hears('❓ Help', async (ctx) => {
 
 bot.on('text', async (ctx, next) => {
   const userId = getContextKey(ctx);
+  const cartKey = getCartKey(ctx);
+  const userKey = getUserKey(ctx);
   const text = (ctx.message?.text || '').trim();
 
   if (!text || text.startsWith('/')) {
     return next();
+  }
+
+  if (pendingDeliverySessions.has(cartKey)) {
+    const deliveryDetails = normalizeDeliveryDetails(text);
+
+    if (!deliveryDetails || deliveryDetails.length < 6) {
+      await ctx.reply('Please send complete delivery details (name, area, and phone).');
+      return;
+    }
+
+    const session = pendingDeliverySessions.get(cartKey);
+    pendingDeliverySessions.delete(cartKey);
+
+    if (!session?.items?.length) {
+      await ctx.reply('Your checkout session expired. Please open your cart and checkout again.', buildCartKeyboard());
+      return;
+    }
+
+    const customerName = getContextLabel(ctx);
+    const localOrderId = generateOrderId();
+    const localTotal = session.total;
+
+    const localOrder = {
+      orderId: localOrderId,
+      items: cloneCartItems(session.items),
+      total: localTotal,
+      status: 'pending',
+      deliveryDetails,
+      createdAt: new Date().toISOString()
+    };
+
+    if (!localOrders.has(userKey)) {
+      localOrders.set(userKey, []);
+    }
+    localOrders.get(userKey).push(localOrder);
+
+    console.log('order_details_received', {
+      cartKey,
+      userKey,
+      orderId: localOrderId,
+      total: localTotal,
+      deliveryDetails
+    });
+
+    let order = null;
+    try {
+      order = await submitCartOrder(customerName, session.items);
+      console.log('order_saved_remote', order);
+    } catch (error) {
+      console.warn('Remote order save failed; using local order snapshot:', error.message);
+    }
+
+    userCarts.set(cartKey, []);
+    pendingCheckoutSessions.delete(cartKey);
+
+    const finalOrderId = order?.id || localOrderId;
+    const finalTotal = order?.total || localTotal;
+    const finalStatus = order?.status || 'pending';
+
+    await ctx.reply(
+      [
+        '✅ Order Confirmed!',
+        `Order ID: #${finalOrderId}`,
+        `Status: ${finalStatus}`,
+        `Total: ₵${finalTotal}`,
+        `Delivery: ${deliveryDetails}`,
+        '',
+        'Tap Pay Now to continue.'
+      ].join('\n'),
+      Markup.inlineKeyboard([
+        [Markup.button.callback('💳 Pay Now', `payment_prompt_${finalOrderId}`)],
+        [Markup.button.callback('🛍️ View Products', 'open_products')]
+      ])
+    );
+    return;
   }
 
   if (pendingSearchUsers.has(userId)) {
@@ -999,6 +1087,7 @@ bot.action(/cart_remove_all_(\d+)/, async (ctx) => {
   const updated = cartItems.filter((item) => Number(item.productId) !== productId);
   userCarts.set(cartKey, updated);
   pendingCheckoutSessions.delete(cartKey);
+  pendingDeliverySessions.delete(cartKey);
 
   await showCart(ctx);
 });
@@ -1024,6 +1113,7 @@ bot.action(/cart_reduce_(\d+)/, async (ctx) => {
   }
 
   pendingCheckoutSessions.delete(cartKey);
+  pendingDeliverySessions.delete(cartKey);
 
   await showCart(ctx);
 });
@@ -1037,6 +1127,17 @@ bot.action('cart_checkout', async (ctx) => {
   await safeAnswerCbQuery(ctx, 'Processing checkout...');
   const cartKey = getCartKey(ctx);
   const cartItems = getUserCart(cartKey);
+
+  if (pendingDeliverySessions.has(cartKey)) {
+    await ctx.reply('Delivery details are pending. Please send your name, area, and phone number.');
+    return;
+  }
+
+  const existingCheckout = pendingCheckoutSessions.get(cartKey);
+  if (existingCheckout && !existingCheckout.processing) {
+    await safeAnswerCbQuery(ctx, 'Confirmation already opened');
+    return;
+  }
 
   if (!cartItems.length) {
     await ctx.reply('Your cart is empty. Add products first.', buildCartKeyboard());
@@ -1094,6 +1195,11 @@ async function processConfirmOrder(ctx) {
     return;
   }
 
+  if (pendingDeliverySessions.has(cartKey)) {
+    await ctx.reply('Delivery details are pending. Please send your name, area, and phone number.');
+    return;
+  }
+
   if (pendingCheckout?.processing) {
     await safeAnswerCbQuery(ctx, 'Order already being processed...');
     return;
@@ -1103,8 +1209,6 @@ async function processConfirmOrder(ctx) {
     pendingCheckout.processing = true;
   }
 
-  const customerName = getContextLabel(ctx);
-
   try {
     console.log('confirm_order triggered', {
       cartKey,
@@ -1112,47 +1216,31 @@ async function processConfirmOrder(ctx) {
       itemCount: cartItems.length
     });
 
-    const localOrderId = Math.floor(1000 + Math.random() * 9000);
-    const localTotal = cartItems.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
-    const localOrder = {
-      orderId: localOrderId,
-      items: cloneCartItems(cartItems),
-      total: localTotal,
-      status: 'pending',
-      createdAt: new Date().toISOString()
-    };
-
-    if (!localOrders.has(userKey)) {
-      localOrders.set(userKey, []);
-    }
-    localOrders.get(userKey).push(localOrder);
-
-    console.log('Local order snapshot:', localOrder);
-
-    const order = await submitCartOrder(customerName, cartItems);
-    console.log('Confirmed order response:', order);
-
-    userCarts.set(cartKey, []);
     pendingCheckoutSessions.delete(cartKey);
+    const total = cartItems.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+    pendingDeliverySessions.set(cartKey, {
+      items: cloneCartItems(cartItems),
+      total,
+      createdAt: Date.now(),
+      userKey
+    });
 
     const doneMsg = [
-      '✅ Order Confirmed!',
-      `Order ID: #${order.id || localOrderId}`,
-      `Status: ${order.status || 'pending'}`,
-      `Total: ₵${order.total || localTotal}`,
+      '✅ Cart validated',
+      `Items: ${cartItems.length}`,
+      `Total: ₵${total}`,
       '',
-      'Next: track your order or continue shopping.'
+      'Send your delivery details in one message:',
+      'Name, area, phone number.'
     ].join('\n');
 
     try {
       await ctx.editMessageText(doneMsg, Markup.inlineKeyboard([
-        [Markup.button.callback('📦 Track this order', `track_${order.id || localOrderId}`)],
-        [Markup.button.callback('🛍️ View Products', 'open_products')]
+        [Markup.button.callback('❌ Cancel', 'cancel_order')]
       ]));
     } catch (editError) {
       await ctx.reply(doneMsg, Markup.inlineKeyboard([
-        [Markup.button.callback('📦 Track this order', `track_${order.id || localOrderId}`)],
-        [Markup.button.callback('🛍️ View Products', 'open_products')]
+        [Markup.button.callback('❌ Cancel', 'cancel_order')]
       ]));
     }
   } catch (error) {
@@ -1173,6 +1261,7 @@ bot.action('cancel_order', async (ctx) => {
   await safeAnswerCbQuery(ctx, 'Order cancelled');
   const cartKey = getCartKey(ctx);
   pendingCheckoutSessions.delete(cartKey);
+  pendingDeliverySessions.delete(cartKey);
   userCarts.set(cartKey, []);
 
   try {
@@ -1189,6 +1278,41 @@ bot.action('cancel_order', async (ctx) => {
 bot.action('cart_confirm_final', async (ctx) => {
   await safeAnswerCbQuery(ctx, 'Confirming order...');
   await processConfirmOrder(ctx);
+});
+
+bot.action(/payment_prompt_(\d+)/, async (ctx) => {
+  const orderId = Number(ctx.match[1]);
+  await safeAnswerCbQuery(ctx, 'Opening payment options...');
+
+  const paymentMsg = [
+    '💳 Payment Prompt',
+    `Order ID: #${orderId}`,
+    '',
+    'Choose a payment option and complete payment.',
+    'After payment, tap "I Have Paid".'
+  ].join('\n');
+
+  try {
+    await ctx.editMessageText(paymentMsg, Markup.inlineKeyboard([
+      [Markup.button.callback('✅ I Have Paid', `payment_done_${orderId}`)],
+      [Markup.button.callback('📞 Contact Support', 'open_products')]
+    ]));
+  } catch (error) {
+    await ctx.reply(paymentMsg, Markup.inlineKeyboard([
+      [Markup.button.callback('✅ I Have Paid', `payment_done_${orderId}`)],
+      [Markup.button.callback('📞 Contact Support', 'open_products')]
+    ]));
+  }
+});
+
+bot.action(/payment_done_(\d+)/, async (ctx) => {
+  const orderId = Number(ctx.match[1]);
+  await safeAnswerCbQuery(ctx, 'Payment status received');
+
+  await ctx.reply(
+    `✅ Payment noted for Order #${orderId}.\nWe will verify and update your order status shortly.`,
+    Markup.inlineKeyboard([[Markup.button.callback('📦 Track Order', `track_${orderId}`)]])
+  );
 });
 
 bot.action(/track_(\d+)/, async (ctx) => {

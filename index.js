@@ -161,6 +161,17 @@ function getUserKey(ctx) {
   return String(ctx.from?.id ?? ctx.chat?.id ?? ctx.senderChat?.id ?? 'anonymous');
 }
 
+function getLocalOrderById(orderId) {
+  for (const [, orders] of localOrders.entries()) {
+    const found = orders.find((entry) => Number(entry.orderId) === Number(orderId));
+    if (found) {
+      return found;
+    }
+  }
+
+  return null;
+}
+
 healthApp.get('/', (req, res) => {
   res.status(200).json({
     ok: true,
@@ -389,10 +400,14 @@ async function submitCartOrder(customerName, cartItems, retries = 3) {
   let lastError;
 
   for (let attempt = 1; attempt <= retries; attempt += 1) {
+    let timeout;
     try {
+      const controller = new AbortController();
+      timeout = setTimeout(() => controller.abort(), 7000);
       const response = await fetch(`${apiBaseUrl}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           customerName,
           items: cartItems.map((item) => ({
@@ -401,7 +416,6 @@ async function submitCartOrder(customerName, cartItems, retries = 3) {
           }))
         })
       });
-
       if (!response.ok) {
         throw new Error(`Checkout request failed: ${response.status}`);
       }
@@ -411,6 +425,10 @@ async function submitCartOrder(customerName, cartItems, retries = 3) {
       lastError = error;
       if (attempt < retries) {
         await sleep(500 * attempt);
+      }
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
       }
     }
   }
@@ -552,17 +570,32 @@ async function addToCartFlow(ctx, productId, grams) {
 }
 
 async function getOrderById(orderId) {
-  const response = await fetch(`${apiBaseUrl}/api/orders`);
-  if (!response.ok) {
-    throw new Error(`Orders request failed: ${response.status}`);
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/orders`);
+    if (response.ok) {
+      const orders = await response.json();
+      if (Array.isArray(orders)) {
+        const remoteOrder = orders.find((order) => Number(order.id) === Number(orderId));
+        if (remoteOrder) {
+          return remoteOrder;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Remote order lookup failed, trying local cache:', error.message);
   }
 
-  const orders = await response.json();
-  if (!Array.isArray(orders)) {
-    throw new Error('Invalid orders response format');
+  const localOrder = getLocalOrderById(orderId);
+  if (localOrder) {
+    return {
+      id: localOrder.orderId,
+      status: localOrder.status || 'pending',
+      total: localOrder.total || 0,
+      createdAt: localOrder.createdAt || new Date().toISOString()
+    };
   }
 
-  return orders.find((order) => order.id === orderId) || null;
+  return null;
 }
 
 function buildMainMenu() {
@@ -1308,6 +1341,12 @@ bot.action(/payment_prompt_(\d+)/, async (ctx) => {
 bot.action(/payment_done_(\d+)/, async (ctx) => {
   const orderId = Number(ctx.match[1]);
   await safeAnswerCbQuery(ctx, 'Payment status received');
+
+  const localOrder = getLocalOrderById(orderId);
+  if (localOrder) {
+    localOrder.status = 'payment_submitted';
+    localOrder.paymentUpdatedAt = new Date().toISOString();
+  }
 
   await ctx.reply(
     `✅ Payment noted for Order #${orderId}.\nWe will verify and update your order status shortly.`,

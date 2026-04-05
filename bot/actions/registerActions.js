@@ -274,10 +274,12 @@ function registerActions(bot, deps) {
     await safeAnswerCbQuery(ctx, 'Generating payment link...');
     const orderId = String(ctx.match[1]).trim();
     const payload = await backendService.createPaymentLink(orderId, config.provider);
+    const amountText = Number(payload.amount) > 0 ? `Amount: ${formatPrice(payload.amount)}` : 'Amount will show on payment page.';
+    const fallbackNote = payload.localFallback ? '\nUsing backup payment link.' : '';
 
     await editOrReply(
       ctx,
-      `Payment ready for ${orderId}.\nAmount: ${formatPrice(payload.amount || 0)}`,
+      `Payment ready for ${orderId}.\n${amountText}${fallbackNote}`,
       paymentKeyboard(orderId, payload.paymentLink)
     );
   }));

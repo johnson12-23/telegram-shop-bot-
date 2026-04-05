@@ -27,7 +27,7 @@ services:
       - key: API_BASE_URL
         value: http://telegram-shop-api.onrender.com
       - key: BOT_MODE
-        value: auto
+        value: polling
       - key: WEBHOOK_PATH
         value: /telegram/webhook
       - key: WEBHOOK_URL

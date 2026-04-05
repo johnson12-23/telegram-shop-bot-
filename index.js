@@ -208,7 +208,7 @@ function resolveRuntimeMode() {
     return 'polling';
   }
 
-  return webhookUrl ? 'webhook' : 'polling';
+  return 'polling';
 }
 
 function sleep(ms) {

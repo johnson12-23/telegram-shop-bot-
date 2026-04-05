@@ -467,7 +467,7 @@ function buildMainMenu() {
 
 async function showHelp(ctx) {
   await ctx.replyWithHTML(
-    '<b>How to use the bot</b>\n\n🛍️ View Products: Browse products and place orders\n🔍 Search: Find products by keyword\n📦 Track Order: Check your order status\n🛒 My Cart: View your current cart guide\n❓ Help: Open this guide',
+    '<b>Quick guide</b>\n\n🛍️ View Products - browse collections\n🔍 Search - find a product fast\n📦 Track Order - check status\n🛒 My Cart - view your cart\n❓ Help - open this guide',
     buildMainMenu()
   );
 }
@@ -547,7 +547,7 @@ function formatProductDetail(product) {
 function buildQuantityKeyboard(product) {
   const productId = product.id;
   const unit = getProductUnit(product);
-  
+
   return Markup.inlineKeyboard([
     [Markup.button.callback(`1${unit}`, `grams_${productId}_1`)],
     [Markup.button.callback(`2${unit}`, `grams_${productId}_2`)],
@@ -559,12 +559,11 @@ function buildQuantityKeyboard(product) {
 function buildGroupProductsKeyboard(groupId, groupProducts) {
   const productButtons = [];
 
-  for (let index = 0; index < groupProducts.length; index += 2) {
-    const row = groupProducts.slice(index, index + 2).map((product) => {
-      const unit = getProductUnit(product);
-      return Markup.button.callback(`${product.name} - ₵${product.price}/${unit}`, `category_${product.id}`);
-    });
-    productButtons.push(row);
+  for (const product of groupProducts) {
+    const unit = getProductUnit(product);
+    productButtons.push([
+      Markup.button.callback(`${product.name} • ₵${product.price}/${unit}`, `category_${product.id}`)
+    ]);
   }
 
   productButtons.push([Markup.button.callback('⬅️ Back to collections', 'open_products')]);
@@ -585,7 +584,7 @@ async function sendGroupProducts(ctx, groupId) {
       `${group.icon} ${group.name}`,
       group.blurb,
       '',
-      `Browse the ${group.name.toLowerCase()} lineup below.`,
+      'Browse the items below.',
       '',
       formatGroupProducts(`${group.name} selection`, groupProducts)
     ].join('\n'),
@@ -601,7 +600,7 @@ async function sendCategorySelection(ctx, useEditMessage = false) {
       '',
       formatCategoryList(products),
       '',
-      'Tap a collection to open its products.'
+      'Choose a collection below.'
     ].join('\n');
     const keyboard = buildCategoryKeyboard();
 
@@ -627,7 +626,7 @@ bot.start(async (ctx) => {
     : '\n\n<b>Anonymous-safe session active.</b> Replies and cart state are scoped to this chat.';
 
   await ctx.replyWithHTML(
-    `Welcome to our private collection.\n\nYou\'ve been granted access to a discreet, premium storefront designed for clients who value quality, privacy, and a seamless experience.\n\n🛍️ <b>Inside, you\'ll find:</b>\n• <b>GOODIES</b> for the current classics\n• <b>EDIBLES</b> for sweets and baked treats\n• <b>DRINKS</b> for infused beverages\n• Clear collection cards with item counts\n• Polished item pages with quick gram selection\n• Smooth and secure ordering\n• Real-time order updates\n\n🔒 <b>Discretion is our standard</b>\nEvery interaction is handled with professionalism and strict confidentiality.\n\nTake your time, explore the collection, and choose what suits you best.\n\n👉 Tap "View Products" to begin.\n\nFor assistance, simply send a message - dedicated support is always available.${anonymousSessionNote}`,
+    `Welcome to our private collection.\n\nQuick access for mobile: browse collections, search products, track orders, and manage your cart.\n\n🛍️ <b>What you can do:</b>\n• Browse GOODIES, EDIBLES, and DRINKS\n• View item details and add to cart\n• Check order status\n• Complete checkout in one cart\n\nTap "View Products" to begin.${anonymousSessionNote}`,
     buildMainMenu()
   );
 });
@@ -657,14 +656,14 @@ bot.hears('🔍 Search', async (ctx) => {
   const contextKey = getContextKey(ctx);
   pendingSearchUsers.add(contextKey);
   pendingTrackUsers.delete(contextKey);
-  await ctx.reply('Send a product keyword. Try: gold, jelly, cake, sobolo, or lamogin.', buildMainMenu());
+  await ctx.reply('Send one keyword. Example: gold, cake, sobolo.', buildMainMenu());
 });
 
 bot.hears('📦 Track Order', async (ctx) => {
   const contextKey = getContextKey(ctx);
   pendingTrackUsers.add(contextKey);
   pendingSearchUsers.delete(contextKey);
-  await ctx.reply('Send your order ID (example: 12).', buildMainMenu());
+  await ctx.reply('Send your order ID, like 12.', buildMainMenu());
 });
 
 bot.hears('🛒 My Cart', async (ctx) => {

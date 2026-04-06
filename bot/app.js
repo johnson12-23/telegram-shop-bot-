@@ -2,7 +2,6 @@ const express = require('express');
 const { Telegraf } = require('telegraf');
 const { config } = require('./config');
 const { logger } = require('./utils/logger');
-const { withHandler } = require('./utils/helpers');
 const { registerCommands } = require('./commands/registerCommands');
 const { registerActions } = require('./actions/registerActions');
 const backendService = require('./services/backendService');
@@ -49,13 +48,12 @@ function setupHealthRoutes() {
 }
 
 function resolveRuntimeMode() {
-  // Render worker should run polling mode so users can access the bot independently of local machines.
-  if (process.env.RENDER) {
-    return 'polling';
-  }
-
-  if (config.botMode === 'webhook') {
-    return 'webhook';
+  // Polling is the only supported mode for this project.
+  if (config.botMode && config.botMode !== 'polling') {
+    logger.warn('bot.mode_overridden', {
+      requestedMode: config.botMode,
+      enforcedMode: 'polling'
+    });
   }
 
   return 'polling';
@@ -78,25 +76,9 @@ function buildBot() {
 async function launchBot(runtimeMode) {
   const bot = buildBot();
 
-  if (runtimeMode === 'webhook') {
-    healthApp.use(config.webhookPath, bot.webhookCallback(config.webhookPath));
-    await bot.launch({
-      webhook: {
-        domain: config.webhookUrl,
-        hookPath: config.webhookPath,
-        port: config.port,
-        host: '0.0.0.0',
-        cb: healthApp,
-        secretToken: config.webhookSecretToken
-      }
-    });
-
-    logger.info('bot.started', { mode: 'webhook', webhookPath: config.webhookPath });
-  } else {
-    await bot.telegram.deleteWebhook({ drop_pending_updates: false });
-    await bot.launch({ dropPendingUpdates: false });
-    logger.info('bot.started', { mode: 'polling' });
-  }
+  await bot.telegram.deleteWebhook({ drop_pending_updates: false });
+  await bot.launch({ dropPendingUpdates: false });
+  logger.info('bot.started', { mode: 'polling' });
 
   const me = await bot.telegram.getMe();
   logger.info('bot.identity', { username: me.username, id: me.id, mode: runtimeMode });
@@ -112,9 +94,6 @@ async function startBot() {
   await startHealthServer();
 
   const runtimeMode = resolveRuntimeMode();
-  if (runtimeMode === 'webhook' && !config.webhookUrl) {
-    throw new Error('WEBHOOK_URL is required when BOT_MODE=webhook');
-  }
 
   const maxBackoffMs = 30000;
   let attempt = 0;

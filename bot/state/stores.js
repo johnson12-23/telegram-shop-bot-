@@ -47,6 +47,7 @@ class SessionStore {
     this.waitingTrack = new Set();
     this.tapLock = new Map();
     this.promptLock = new Map();
+    this.suppressionCounts = new Map();
   }
 
   setWaitingDelivery(userId, payload) {
@@ -117,6 +118,13 @@ class SessionStore {
     }
 
     return false;
+  }
+
+  markSuppressed(userId, type) {
+    const key = `${userId}:${type}`;
+    const next = (this.suppressionCounts.get(key) || 0) + 1;
+    this.suppressionCounts.set(key, next);
+    return next;
   }
 }
 

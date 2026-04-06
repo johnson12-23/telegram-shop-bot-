@@ -41,7 +41,8 @@ function productsKeyboard(products, group) {
 
 function productDetailKeyboard(productId) {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('+1', `add_${productId}_1`), Markup.button.callback('+2', `add_${productId}_2`), Markup.button.callback('+3', `add_${productId}_3`)],
+    [Markup.button.callback('+1', `add_${productId}_1`), Markup.button.callback('+2', `add_${productId}_2`)],
+    [Markup.button.callback('+3', `add_${productId}_3`)],
     [Markup.button.callback('🛒 View Cart', 'menu_cart')],
     [Markup.button.callback('⬅️ Back', 'menu_browse'), Markup.button.callback('🏠 Home', 'menu_home')]
   ]);

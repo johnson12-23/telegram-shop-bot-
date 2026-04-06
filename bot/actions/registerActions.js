@@ -63,6 +63,10 @@ function registerActions(bot, deps) {
     }
 
     if (sessionStore.isDuplicatePrompt(userId, textSignature)) {
+      const count = sessionStore.markSuppressed(userId, 'prompt');
+      if (count === 1 || count % 10 === 0) {
+        logger.info('bot.duplicate_prompt_suppressed', { userId, count, signature: textSignature });
+      }
       return;
     }
 
@@ -79,6 +83,10 @@ function registerActions(bot, deps) {
     const messageId = ctx.callbackQuery?.message?.message_id;
     const data = ctx.callbackQuery?.data;
     if (sessionStore.isDuplicateTap(userId, messageId, data)) {
+      const count = sessionStore.markSuppressed(userId, 'tap');
+      if (count === 1 || count % 10 === 0) {
+        logger.info('bot.duplicate_tap_suppressed', { userId, count, data, messageId: messageId || null });
+      }
       await safeAnswerCbQuery(ctx, 'Already processing...');
       return;
     }

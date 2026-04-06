@@ -46,6 +46,7 @@ class SessionStore {
     this.waitingDelivery = new Map();
     this.waitingTrack = new Set();
     this.tapLock = new Map();
+    this.promptLock = new Map();
   }
 
   setWaitingDelivery(userId, payload) {
@@ -88,6 +89,29 @@ class SessionStore {
       for (const [entryKey, timestamp] of this.tapLock.entries()) {
         if (timestamp < cutoff) {
           this.tapLock.delete(entryKey);
+        }
+      }
+    }
+
+    return false;
+  }
+
+  isDuplicatePrompt(userId, promptSignature, cooldownMs = 1500) {
+    const key = `${userId}:${promptSignature || 'prompt'}`;
+    const now = Date.now();
+    const last = this.promptLock.get(key) || 0;
+
+    if (now - last < cooldownMs) {
+      return true;
+    }
+
+    this.promptLock.set(key, now);
+
+    if (this.promptLock.size > 3000) {
+      const cutoff = now - 90000;
+      for (const [entryKey, timestamp] of this.promptLock.entries()) {
+        if (timestamp < cutoff) {
+          this.promptLock.delete(entryKey);
         }
       }
     }

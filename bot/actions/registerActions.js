@@ -43,21 +43,31 @@ function resolveCartRows(cartItems, productMap) {
     .filter(Boolean);
 }
 
-async function editOrReply(ctx, text, extra) {
-  if (ctx.callbackQuery?.message) {
-    try {
-      await ctx.editMessageText(text, extra);
-      return;
-    } catch (error) {
-      // Message may be immutable or unchanged; fall back to reply.
-    }
-  }
-
-  await ctx.reply(text, extra);
-}
-
 function registerActions(bot, deps) {
   const { backendService, cartStore, sessionStore, config } = deps;
+
+  async function editOrReply(ctx, text, extra) {
+    const userId = getUserId(ctx);
+    const textSignature = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+
+    if (ctx.callbackQuery?.message) {
+      try {
+        await ctx.editMessageText(text, extra);
+        return;
+      } catch (error) {
+        const description = error?.response?.description || '';
+        if (description.includes('message is not modified')) {
+          return;
+        }
+      }
+    }
+
+    if (sessionStore.isDuplicatePrompt(userId, textSignature)) {
+      return;
+    }
+
+    await ctx.reply(text, extra);
+  }
 
   bot.use(withHandler('middleware.callback_dedupe', async (ctx, next) => {
     if (!ctx.callbackQuery) {

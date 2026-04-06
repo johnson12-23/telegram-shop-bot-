@@ -27,9 +27,3 @@ services:
         value: https://telegram-shop-api.onrender.com
       - key: BOT_MODE
         value: polling
-      - key: WEBHOOK_PATH
-        value: /telegram/webhook
-      - key: WEBHOOK_URL
-        value: https://telegram-shop-bot-worker.onrender.com
-      - key: WEBHOOK_SECRET_TOKEN
-        sync: false

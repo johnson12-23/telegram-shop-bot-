@@ -5,7 +5,7 @@ const { logger } = require('./utils/logger');
 const { registerCommands } = require('./commands/registerCommands');
 const { registerActions } = require('./actions/registerActions');
 const backendService = require('./services/backendService');
-const { cartStore, sessionStore } = require('./state/stores');
+const { cartStore, sessionStore, initStores, closeStores } = require('./state/stores');
 
 const healthApp = express();
 let healthServer;
@@ -90,6 +90,11 @@ async function startBot() {
     throw new Error('BOT_TOKEN is required');
   }
 
+  await initStores({
+    redisUrl: config.redisUrl,
+    stateStoreKey: config.stateStoreKey
+  });
+
   setupHealthRoutes();
   await startHealthServer();
 
@@ -119,15 +124,21 @@ async function startBot() {
     }
   }
 
-  const stop = (signal) => {
+  const stop = async (signal) => {
     logger.info('bot.stopping', { signal });
     if (activeBot) {
       activeBot.stop(signal);
     }
+
+    await closeStores();
   };
 
-  process.once('SIGINT', () => stop('SIGINT'));
-  process.once('SIGTERM', () => stop('SIGTERM'));
+  process.once('SIGINT', () => {
+    void stop('SIGINT');
+  });
+  process.once('SIGTERM', () => {
+    void stop('SIGTERM');
+  });
 
   return activeBot;
 }

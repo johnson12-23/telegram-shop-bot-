@@ -1,4 +1,9 @@
 services:
+  - type: redis
+    name: telegram-shop-state
+    plan: free
+    ipAllowList: []
+
   - type: web
     name: telegram-shop-api
     env: node
@@ -27,3 +32,10 @@ services:
         value: https://telegram-shop-api.onrender.com
       - key: BOT_MODE
         value: polling
+      - key: STATE_STORE_KEY
+        value: telegram-shop-bot:state:v1
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: telegram-shop-state
+          property: connectionString

@@ -39,3 +39,10 @@ services:
           type: redis
           name: telegram-shop-state
           property: connectionString
+
+  - type: static
+    name: telegram-shop-cart
+    rootDir: cart-experience
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    autoDeploy: true

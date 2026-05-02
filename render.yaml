@@ -10,12 +10,14 @@ services:
     plan: free
     rootDir: .
     buildCommand: npm ci --only=production 2>/dev/null || npm install
-    startCommand: npm run start:api
+    startCommand: node server.js
     autoDeploy: true
     healthCheckPath: /health
     envVars:
       - key: API_PORT
         value: 4000
+      - key: NODE_ENV
+        value: production
 
   - type: worker
     name: telegram-shop-bot-worker
@@ -23,17 +25,25 @@ services:
     plan: free
     rootDir: .
     buildCommand: npm ci --only=production 2>/dev/null || npm install
-    startCommand: npm run start:bot
+    startCommand: npm install -g pm2 && pm2-runtime start ecosystem.config.js
     autoDeploy: true
     envVars:
       - key: BOT_TOKEN
         sync: false
+      - key: WEBHOOK_URL
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
       - key: API_BASE_URL
         value: https://telegram-shop-api.onrender.com
       - key: BOT_MODE
-        value: polling
+        value: webhook
+      - key: ENABLE_KEEP_ALIVE
+        value: "true"
       - key: STATE_STORE_KEY
         value: telegram-shop-bot:state:v1
+      - key: NODE_ENV
+        value: production
       - key: REDIS_URL
         fromService:
           type: redis

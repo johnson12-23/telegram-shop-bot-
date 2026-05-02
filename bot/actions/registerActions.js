@@ -105,6 +105,12 @@ function registerActions(bot, deps) {
     await editOrReply(ctx, 'Choose a category:', categoryKeyboard(products));
   }));
 
+  // Support users that tap a reply keyboard button or send the text "Browse"/"View Products".
+  bot.hears(['🛍️ Browse', '🛍️ View Products', 'Browse', 'View Products'], withHandler('hear.menu_browse', async (ctx) => {
+    const products = await backendService.getProducts();
+    await editOrReply(ctx, 'Choose a category:', categoryKeyboard(products));
+  }));
+
   bot.action(/cat_(.+)/, withHandler('action.category', async (ctx) => {
     const group = ctx.match[1];
     await safeAnswerCbQuery(ctx, 'Loading products...');
@@ -300,6 +306,13 @@ function registerActions(bot, deps) {
       `Payment ready for ${orderId}.\n${amountText}${fallbackNote}`,
       paymentKeyboard(orderId, payload.paymentLink)
     );
+  }));
+
+  bot.action(/getpay_(.+)/, withHandler('action.get_payment_link', async (ctx) => {
+    await safeAnswerCbQuery(ctx, 'Fetching payment link...');
+    const orderId = String(ctx.match[1]).trim();
+    const payload = await backendService.createPaymentLink(orderId, config.provider);
+    await editOrReply(ctx, `Here is your payment link:\n${payload.paymentLink}`, paymentKeyboard(orderId, payload.paymentLink));
   }));
 
   bot.action('menu_recommend', withHandler('action.menu_recommend', async (ctx) => {

@@ -10,9 +10,36 @@ const { cartStore, sessionStore, initStores, closeStores } = require('./state/st
 const healthApp = express();
 let healthServer;
 let activeBot = null;
+let isShuttingDown = false;
+const BOT_STARTUP_TIMEOUT_MS = Number(process.env.BOT_STARTUP_TIMEOUT_MS || 15000);
+
+function isPermanentStartupError(error) {
+  const code = Number(error?.response?.error_code || 0);
+  return code === 401 || code === 403;
+}
+
+function isLikelyValidBotToken(token) {
+  return /^\d+:[A-Za-z0-9_-]{20,}$/.test(String(token || '').trim());
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTimeout(promise, timeoutMs, step) {
+  let timeout;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`Timeout in ${step} after ${timeoutMs}ms`));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function buildDependencies() {
@@ -29,21 +56,26 @@ async function startHealthServer() {
     return;
   }
 
-  await new Promise((resolve) => {
+  await new Promise((resolve, reject) => {
     healthServer = healthApp.listen(config.port, '0.0.0.0', () => {
       logger.info('bot.health_started', { port: config.port });
       resolve();
+    });
+
+    healthServer.on('error', (error) => {
+      logger.error('bot.health_failed', { message: error.message, port: config.port });
+      reject(error);
     });
   });
 }
 
 function setupHealthRoutes() {
   healthApp.get('/', (req, res) => {
-    res.json({ ok: true, service: 'telegram-shop-bot-worker' });
+    res.json({ ok: true, service: 'telegram-shop-bot-worker', botReady: Boolean(activeBot) });
   });
 
   healthApp.get('/health', (req, res) => {
-    res.json({ ok: true, service: 'telegram-shop-bot-worker' });
+    res.json({ ok: true, service: 'telegram-shop-bot-worker', botReady: Boolean(activeBot) });
   });
 }
 
@@ -66,8 +98,13 @@ function buildBot() {
   registerCommands(bot, deps);
   registerActions(bot, deps);
 
-  bot.catch((error) => {
-    logger.error('bot.uncaught', { message: error.message });
+  bot.catch((error, ctx) => {
+    logger.error('bot.uncaught', {
+      message: error.message,
+      updateType: ctx?.updateType || null,
+      chatId: ctx?.chat?.id || null,
+      userId: ctx?.from?.id || null
+    });
   });
 
   return bot;
@@ -76,11 +113,22 @@ function buildBot() {
 async function launchBot(runtimeMode) {
   const bot = buildBot();
 
-  await bot.telegram.deleteWebhook({ drop_pending_updates: false });
-  await bot.launch({ dropPendingUpdates: false });
+  logger.info('bot.launching', { mode: runtimeMode });
+  await withTimeout(bot.telegram.getMe(), BOT_STARTUP_TIMEOUT_MS, 'getMe');
+  logger.info('bot.identity_verified', { mode: runtimeMode });
+  await withTimeout(
+    bot.telegram.deleteWebhook({ drop_pending_updates: false }),
+    BOT_STARTUP_TIMEOUT_MS,
+    'deleteWebhook'
+  );
+  await withTimeout(
+    bot.launch({ dropPendingUpdates: false }),
+    BOT_STARTUP_TIMEOUT_MS,
+    'launch'
+  );
   logger.info('bot.started', { mode: 'polling' });
 
-  const me = await bot.telegram.getMe();
+  const me = await withTimeout(bot.telegram.getMe(), BOT_STARTUP_TIMEOUT_MS, 'getMe');
   logger.info('bot.identity', { username: me.username, id: me.id, mode: runtimeMode });
   return bot;
 }
@@ -88,6 +136,10 @@ async function launchBot(runtimeMode) {
 async function startBot() {
   if (!config.botToken) {
     throw new Error('BOT_TOKEN is required');
+  }
+
+  if (!isLikelyValidBotToken(config.botToken)) {
+    throw new Error('BOT_TOKEN does not look valid');
   }
 
   await initStores({
@@ -116,18 +168,39 @@ async function startBot() {
         attempt,
         mode: runtimeMode,
         conflict409: Boolean(isConflict),
+        description: error?.response?.description || '',
         message: error.message,
         retryInMs: backoffMs
       });
+
+      if (isPermanentStartupError(error)) {
+        throw error;
+      }
 
       await sleep(backoffMs);
     }
   }
 
   const stop = async (signal) => {
+    if (isShuttingDown) {
+      return;
+    }
+
+    isShuttingDown = true;
     logger.info('bot.stopping', { signal });
     if (activeBot) {
       activeBot.stop(signal);
+      activeBot = null;
+    }
+
+    if (healthServer) {
+      await new Promise((resolve) => {
+        healthServer.close(() => {
+          logger.info('bot.health_stopped', { signal });
+          resolve();
+        });
+      });
+      healthServer = null;
     }
 
     await closeStores();
@@ -145,9 +218,31 @@ async function startBot() {
 
 async function bootstrap() {
   try {
+    logger.info('bot.bootstrap_start', {
+      botTokenLoaded: Boolean(config.botToken),
+      botMode: config.botMode,
+      apiBaseUrl: config.apiBaseUrl,
+      port: config.port
+    });
+
+    process.on('unhandledRejection', (reason) => {
+      logger.error('bot.unhandled_rejection', {
+        message: reason instanceof Error ? reason.message : String(reason)
+      });
+    });
+
+    process.on('uncaughtException', (error) => {
+      logger.error('bot.uncaught_exception', { message: error.message });
+      process.exit(1);
+    });
+
     await startBot();
   } catch (error) {
-    logger.error('bot.bootstrap_failed', { message: error.message });
+    logger.error('bot.bootstrap_failed', {
+      message: error.message,
+      description: error?.response?.description || '',
+      code: error?.response?.error_code || null
+    });
     process.exitCode = 1;
   }
 }

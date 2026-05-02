@@ -87,6 +87,7 @@ function orderConfirmedKeyboard(orderId) {
 function paymentKeyboard(orderId, paymentLink) {
   return Markup.inlineKeyboard([
     [Markup.button.url('💳 Open Payment', paymentLink)],
+    [Markup.button.callback('🔗 Get Link', `getpay_${orderId}`)],
     [Markup.button.callback('📦 Track Order', `track_${orderId}`)],
     [Markup.button.callback('⬅️ Home', 'menu_home')]
   ]);

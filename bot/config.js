@@ -1,4 +1,27 @@
-require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
+
+function loadEnvironmentFiles() {
+  const envPaths = [
+    path.resolve(process.cwd(), '.env'),
+    path.resolve(__dirname, '..', '.env'),
+    path.resolve(__dirname, '..', '..', '.env')
+  ];
+
+  for (const envPath of envPaths) {
+    if (!fs.existsSync(envPath)) {
+      continue;
+    }
+
+    const result = dotenv.config({ path: envPath, override: false });
+    if (!result.error) {
+      break;
+    }
+  }
+}
+
+loadEnvironmentFiles();
 
 const config = {
   botToken: (process.env.BOT_TOKEN || '').trim(),

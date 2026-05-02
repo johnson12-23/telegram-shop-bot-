@@ -19,7 +19,14 @@ const FLUTTERWAVE_WEBHOOK_SECRET = (process.env.FLUTTERWAVE_WEBHOOK_SECRET || ''
 const APP_PUBLIC_URL = (process.env.APP_PUBLIC_URL || '').trim();
 const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || '').trim();
 
-app.use(express.json({ limit: '128kb' }));
+const jsonParser = express.json({ limit: '128kb' });
+app.use((req, res, next) => {
+  if (req.path === '/api/payments/webhook/paystack') {
+    return next();
+  }
+
+  return jsonParser(req, res, next);
+});
 
 const products = [
   { id: 1, name: 'GH GOLD', group: 'goodies', price: 50, description: 'Premium quality, smooth profile, and a clean finish.', stock: 50, lowStockThreshold: 8, soldCount: 0 },
